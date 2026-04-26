@@ -216,7 +216,7 @@ public function adminUpdateUser(Request $request, $id)
             'min_stock_level'      => 'nullable|integer|min:0',
             'sku'                  => 'nullable|string|unique:menu,sku',
             // Image (required)
-            'image'                => 'required|image|mimes:jpeg,png,jpg,gif|max:5120', // 5MB
+            'image' => 'required|image|mimes:jpeg,png,jpg,gif,webp,bmp,svg+xml|max:20480', // 20MB
             // Optional drink sizes (JSON string)
             'drink_sizes'          => 'nullable|json',
             // Optional BOM (JSON string)
@@ -253,8 +253,8 @@ public function adminUpdateUser(Request $request, $id)
                 'stock_quantity'    => $request->track_stock ? ($request->stock_quantity ?? 0) : null,
                 'is_ready_made'     => $request->is_ready_made ?? true,
                 'track_stock'       => $request->track_stock ?? false,
-                'expiration_date'   => $request->expiration_date,
-                'min_stock_level'   => $request->min_stock_level,
+                'expiration_date' => $request->expiration_date ?: null,
+                'min_stock_level' => $request->min_stock_level ?? 0,
                 'image_url'         => Storage::url($imagePath),
                 'stocked_at'        => now(),
             ]);
@@ -327,6 +327,108 @@ public function adminUpdateUser(Request $request, $id)
                 'error'   => $e->getMessage()
             ], 500);
         }
+    }
+
+        public function getMenu()
+    {
+        $menu = \App\Models\Menu::with('category')->get();
+        return response()->json(['products' => $menu]);
+    }
+
+
+    // Get all menu items (products) with their category and drink sizes
+    public function getAllMenu()
+    {
+        $menu = \App\Models\Menu::with(['category', 'drinkSizes'])->get();
+        return response()->json([
+            'products' => $menu,
+            'message'  => 'Products retrieved successfully'
+        ]);
+    }
+
+    // Delete a menu item (product)
+    public function deleteMenu($id)
+    {
+        $menu = \App\Models\Menu::findOrFail($id);
+        
+        // Optional: check if the product has any order items before deleting
+        // if ($menu->orderItems()->exists()) {
+        //     return response()->json(['message' => 'Cannot delete because it has associated orders'], 409);
+        // }
+        
+        $menu->delete();
+        
+        return response()->json([
+            'message' => 'Product deleted successfully'
+        ]);
+    }
+
+
+
+    /**
+     * Admin: Update an existing menu item (product)
+     */
+    public function updateMenu(Request $request, $id)
+    {
+        $menu = \App\Models\Menu::findOrFail($id);
+
+        // Convert boolean strings to actual booleans
+        $booleanFields = ['has_size_options', 'is_active', 'track_stock', 'is_ready_made'];
+        foreach ($booleanFields as $field) {
+            if ($request->has($field)) {
+                $request->merge([$field => filter_var($request->$field, FILTER_VALIDATE_BOOLEAN)]);
+            }
+        }
+
+        $validated = $request->validate([
+            'category_id'      => 'required|exists:categories,id',
+            'name'             => 'required|string|max:150',
+            'description'      => 'nullable|string',
+            'base_price'       => 'required|numeric|min:0',
+            'menu_type'        => 'required|in:standard,customizable',
+            'has_size_options' => 'boolean',
+            'is_active'        => 'boolean',
+            'stock_quantity'   => 'nullable|integer|min:0',
+            'is_ready_made'    => 'boolean',
+            'track_stock'      => 'boolean',
+            'expiration_date'  => 'nullable|date|after:today',
+            'min_stock_level'  => 'nullable|integer|min:0',
+            'sku'              => 'nullable|string|unique:menu,sku,' . $id,
+            'image'            => 'nullable|image|max:20480', // 20MB, optional on update
+        ]);
+
+        // Handle image update if a new file is uploaded
+        if ($request->hasFile('image')) {
+            $imagePath = $request->file('image')->store('uploads/menu', 'public');
+            $validated['image_url'] = Storage::url($imagePath);
+
+            // Delete old image if needed (optional)
+            if ($menu->image_url && Storage::disk('public')->exists(str_replace('/storage/', '', $menu->image_url))) {
+                Storage::disk('public')->delete(str_replace('/storage/', '', $menu->image_url));
+            }
+        }
+
+        $menu->update([
+            'category_id'       => $validated['category_id'],
+            'name'              => $validated['name'],
+            'description'       => $validated['description'] ?? $menu->description,
+            'base_price'        => $validated['base_price'],
+            'menu_type'         => $validated['menu_type'],
+            'has_size_options'  => $validated['has_size_options'] ?? $menu->has_size_options,
+            'is_active'         => $validated['is_active'] ?? $menu->is_active,
+            'stock_quantity'    => $validated['track_stock'] ? ($validated['stock_quantity'] ?? 0) : null,
+            'is_ready_made'     => $validated['is_ready_made'] ?? $menu->is_ready_made,
+            'track_stock'       => $validated['track_stock'] ?? $menu->track_stock,
+            'expiration_date'   => $validated['expiration_date'] ?? $menu->expiration_date,
+            'min_stock_level'   => $validated['min_stock_level'] ?? $menu->min_stock_level,
+            'sku'               => $validated['sku'] ?? $menu->sku,
+            'image_url'         => $validated['image_url'] ?? $menu->image_url,
+        ]);
+
+        return response()->json([
+            'message' => 'Product updated successfully',
+            'product' => $menu->load(['category', 'drinkSizes']),
+        ]);
     }
 
 

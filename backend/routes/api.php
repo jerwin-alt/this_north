@@ -25,17 +25,22 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/admin/users', [AuthController::class, 'getAllUsers']);
     Route::post('/admin/users', [AuthController::class, 'adminCreateUser']);
     Route::put('/admin/users/{id}', [AuthController::class, 'adminUpdateUser']); // <-- new
+
     // Categories
-   Route::middleware(['auth:sanctum', 'admin'])->post('/admin/menu', [AuthController::class, 'adminAddMenu']);
+    Route::post('/admin/menu', [AuthController::class, 'adminAddMenu']);
+
+
+    
+    Route::post('/admin/users', [AuthController::class, 'adminCreateUser']);
+    Route::get('/admin/menu', [AuthController::class, 'getMenu']);
+    Route::delete('/admin/menu/{id}', [AuthController::class, 'deleteMenu']);
+    Route::get('/admin/menu', [AuthController::class, 'getAllMenu']);           // list all products
+    Route::delete('/admin/menu/{id}', [AuthController::class, 'deleteMenu']);   // delete a product
+    Route::put('/admin/menu/{id}', [AuthController::class, 'updateMenu']);
     
 });
 
+Route::apiResource('categories', App\Http\Controllers\CategoryController::class);
 
-
- Route::apiResource('categories', App\Http\Controllers\CategoryController::class);
-
-
-
-Route::middleware(['auth:sanctum', 'admin'])->post('/admin/users', [AuthController::class, 'adminCreateUser']);
 
 Route::get('/staff', [AuthController::class, 'getStaffUsers']);

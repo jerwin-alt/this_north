@@ -6,6 +6,7 @@ import App from './App.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import DashboardOverview from './pages/DashboardOverview.jsx';  // create this component
 import Users from './pages/Users.jsx';
+import Products from './pages/Products.jsx';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -16,6 +17,7 @@ createRoot(document.getElementById('root')).render(
 
         {/* Dashboard layout with nested routes */}
         <Route path="/pages/dashboard" element={<Dashboard />}>
+        <Route path="products" element={<Products />} />
           {/* Index route (Overview) */}
           <Route index element={<DashboardOverview />} />
 
@@ -25,7 +27,6 @@ createRoot(document.getElementById('root')).render(
           {/* You will add other routes here later */}
           {/* <Route path="orders" element={<Orders />} /> */}
           {/* <Route path="inventory" element={<Inventory />} /> */}
-          {/* <Route path="products" element={<Products />} /> */}
           {/* <Route path="reports" element={<Reports />} /> */}
           {/* <Route path="discounts" element={<Discounts />} /> */}
           {/* <Route path="settings" element={<Settings />} /> */}

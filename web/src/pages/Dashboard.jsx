@@ -18,11 +18,13 @@ export default function Dashboard() {
 
   const menuItems = [
     { name: 'Overview', icon: LayoutDashboard, path: '/pages/dashboard' },
+    // Inside menuItems array, add:
+    { name: 'Users', icon: Users, path: '/pages/dashboard/users' },      // matches nested route
+    { name: 'Products', icon: Package, path: '/pages/dashboard/products' },
+    
     { name: 'Orders', icon: ShoppingCart, path: '/pages/dashboard/orders' },
     { name: 'Inventory', icon: Package, path: '/pages/dashboard/inventory' },
-    { name: 'Products', icon: Box, path: '/pages/dashboard/products' },
     { name: 'Reports', icon: BarChart3, path: '/pages/dashboard/reports' },
-    { name: 'Users', icon: Users, path: '/pages/dashboard/users' },      // matches nested route
     { name: 'Discounts', icon: Percent, path: '/pages/dashboard/discounts' },
     { name: 'Settings', icon: Settings, path: '/pages/dashboard/settings' },
   ];
