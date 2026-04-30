@@ -1,9 +1,12 @@
-// App.jsx - With mock login (no API needed)
 import { useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
-import { useAuth } from './contexts/auth-context'; 
+import { Eye, EyeOff, Cake, Loader2 } from 'lucide-react';
+import { useAuth } from './contexts/auth-context';
 import { useNavigate } from 'react-router-dom';
 
+// Color palette
+const SAGE = '#4F5F52';
+const CREAM = '#F2EDE4';
+const MUTED_GRAY = '#A6A29A';
 
 export default function App() {
   const [email, setEmail] = useState('');
@@ -17,146 +20,201 @@ export default function App() {
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
-  e.preventDefault();
-  
-  if (!email || !password) {
-    alert("Please enter email and password");
-    return;
-  }
-
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    alert("Please enter a valid email address");
-    return;
-  }
-  
-  setIsLocalLoading(true);
-
-  try {
-    console.log("1. Calling login API...");
-    await login({ email, password });
-    console.log("2. Login API completed");
-
-    console.log("3. Checking for user data...");
-    let currentUser = useAuth.getState().user;
-    console.log("Initial user:", currentUser);
+    e.preventDefault();
     
-    let retries = 0;
-    while (!currentUser && retries < 10) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      currentUser = useAuth.getState().user;
-      retries++;
-      console.log(`Waiting for user data... attempt ${retries}, user:`, currentUser);
+    if (!email || !password) {
+      alert("Please enter email and password");
+      return;
     }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      alert("Please enter a valid email address");
+      return;
+    }
+    
+    setIsLocalLoading(true);
+    setLoading(true);
+    setError('');
 
-    console.log("4. Final user after polling:", currentUser);
+    try {
+      console.log("1. Calling login API...");
+      await login({ email, password });
+      console.log("2. Login API completed");
 
-    if (currentUser) {
-      console.log("5. User role:", currentUser.role);
-      console.log("6. User full data:", currentUser);
+      console.log("3. Checking for user data...");
+      let currentUser = useAuth.getState().user;
+      console.log("Initial user:", currentUser);
       
-      if (currentUser.role === 'admin' || currentUser.role === 'owner') {
-        console.log("7. Access granted, navigating to dashboard...");
-        navigate('/pages/Dashboard');
-      } else {
-        console.log("7. Access denied - role is:", currentUser.role);
-        alert("Access Denied. Owner Access Only.");
-        await useAuth.getState().logout();
+      let retries = 0;
+      while (!currentUser && retries < 10) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        currentUser = useAuth.getState().user;
+        retries++;
+        console.log(`Waiting for user data... attempt ${retries}, user:`, currentUser);
       }
-    } else {
-      console.log("5. No user found after login");
-      alert("Login Failed: Unable to Fetch User Information");
-    }
 
-  } catch (error) {
-    console.error("Login error:", error);
-    let errorMessage = "Invalid Email or Password";
-    if (error.response?.data?.message) {
-      errorMessage = error.response.data.message;
-    } else if (error.message) {
-      errorMessage = error.message;
+      console.log("4. Final user after polling:", currentUser);
+
+      if (currentUser) {
+        console.log("5. User role:", currentUser.role);
+        console.log("6. User full data:", currentUser);
+        
+        if (currentUser.role === 'admin' || currentUser.role === 'owner') {
+          console.log("7. Access granted, navigating to dashboard...");
+          navigate('/pages/Dashboard');
+        } else {
+          console.log("7. Access denied - role is:", currentUser.role);
+          alert("Access Denied. Owner Access Only.");
+          await useAuth.getState().logout();
+        }
+      } else {
+        console.log("5. No user found after login");
+        alert("Login Failed: Unable to Fetch User Information");
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      let errorMessage = "Invalid Email or Password";
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      setError(errorMessage);
+      alert(errorMessage);
+    } finally {
+      setIsLocalLoading(false);
+      setLoading(false);
     }
-    alert(errorMessage);
-  } finally {
-    setIsLocalLoading(false);
-  }
-};
+  };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left Side - Branding */}
-      <div className="flex-1 bg-gradient-to-br from-green-900 to-green-700 flex flex-col justify-end p-10 text-white">
-        <div className="max-w-md">
-          <div className="text-6xl mb-4">🎂</div>
-          <h1 className="text-4xl font-bold">North Cakes CDO</h1>
-          <p className="text-white/80 mt-2">Operational Management System</p>
-          <p className="text-white/50 text-sm mt-4">
-            Streamline your bakery operations — from order management to inventory control.
-          </p>
+    <div className="min-h-screen flex overflow-hidden">
+      {/* Left decorative panel – enhanced with cake icons */}
+      <div className="hidden lg:flex lg:w-3/5 relative" style={{ background: SAGE }}>
+        <div className="absolute inset-0 overflow-hidden opacity-10">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <Cake
+              key={i}
+              className="absolute text-white"
+              style={{
+                left: `${(i % 4) * 26 + 3}%`,
+                top: `${Math.floor(i / 4) * 32 + 4}%`,
+                width: 72,
+                height: 72,
+              }}
+            />
+          ))}
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-r" style={{ background: `linear-gradient(to right, ${SAGE}95, ${SAGE}60)` }} />
+        <div className="absolute bottom-14 left-14 text-white">
+          <div className="flex items-center gap-3 mb-4" style={{ animation: 'fadeSlideUp 0.6s 0.3s both' }}>
+            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+              <Cake className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-5xl font-bold" style={{ color: '#69ce73' }}>North Cakes CDO</h1>
+          </div>
+          <p className="text-xl text-white/75 ml-1" style={{ animation: 'fadeSlideUp 0.6s 0.45s both' }}>Operational Management System</p>
+          <div className="flex gap-4 mt-6 ml-1" style={{ animation: 'fadeSlideUp 0.6s 0.55s both' }}>
+            {['Admin Portal', 'Staff Portal', 'Live Reports'].map(label => (
+              <span key={label} className="bg-white/15 text-white/80 text-xs px-3 py-1.5 rounded-full">
+                {label}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Right Side - Login Form */}
-      <div className="w-[480px] bg-white p-10 rounded-2xl shadow-2xl m-auto">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-green-700 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-3">
-            🎂
+      {/* Right side – login form */}
+      <div className="flex-1 flex items-center justify-center p-8 overflow-y-auto" style={{ background: CREAM }}>
+        <div className="w-full max-w-md" style={{ animation: 'fadeSlideRight 0.5s 0.2s both' }}>
+          <div className="text-center mb-10">
+            <div className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg" style={{ background: SAGE }}>
+              <Cake className="w-10 h-10 text-white" />
+            </div>
+            <h2 className="text-3xl font-bold" style={{ color: SAGE }}>Welcome Back</h2>
+            <p className="mt-2" style={{ color: MUTED_GRAY }}>Sign in to manage your pastry shop</p>
           </div>
-          <h2 className="text-2xl font-bold text-green-900">Welcome Back</h2>
-          <p className="text-gray-600 text-sm">Sign in to manage your pastry shop</p>
-        </div>
 
-        <form onSubmit={handleLogin} className="space-y-5">
           {error && (
-            <div className="bg-red-100 border border-red-400 rounded-lg p-3 text-red-700 text-sm">
+            <div className="mb-5 p-3.5 rounded-xl text-sm" style={{ background: '#DC262610', border: '1px solid #DC262630', color: '#DC2626' }}>
               {error}
             </div>
           )}
 
-          <div>
-            <label className="block text-green-900 text-sm font-medium mb-1">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-green-600"
-              placeholder="admin@northcakes.com"
-              required
-            />
-          </div>
-
-          <div className="relative">
-            <label className="block text-green-900 text-sm font-medium mb-1">Password</label>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-green-600"
-              placeholder="••••••••"
-              required
-            />
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: SAGE }}>Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your email"
+                required
+                className="w-full h-12 px-4 rounded-xl border bg-white placeholder-gray-400 focus:outline-none focus:ring-2 transition-all"
+                style={{ borderColor: `${MUTED_GRAY}30`, color: SAGE }}
+                onFocus={(e) => { e.target.style.borderColor = SAGE; e.target.style.ringColor = `${SAGE}30`; }}
+                onBlur={(e) => e.target.style.borderColor = `${MUTED_GRAY}30`}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1.5" style={{ color: SAGE }}>Password</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  required
+                  className="w-full h-12 px-4 pr-12 rounded-xl border bg-white placeholder-gray-400 focus:outline-none focus:ring-2 transition-all"
+                  style={{ borderColor: `${MUTED_GRAY}30`, color: SAGE }}
+                  onFocus={(e) => { e.target.style.borderColor = SAGE; e.target.style.ringColor = `${SAGE}30`; }}
+                  onBlur={(e) => e.target.style.borderColor = `${MUTED_GRAY}30`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-colors"
+                  style={{ color: MUTED_GRAY }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = SAGE}
+                  onMouseLeave={(e) => e.currentTarget.style.color = MUTED_GRAY}
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
             <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-9 text-gray-500"
+              type="submit"
+              disabled={loading}
+              className="w-full h-12 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 shadow-md disabled:opacity-60"
+              style={{ background: SAGE }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#3e4c42'}
+              onMouseLeave={(e) => e.currentTarget.style.background = SAGE}
             >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" /> Signing in…
+                </>
+              ) : (
+                'Sign In'
+              )}
             </button>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-green-700 text-white py-2.5 rounded-lg font-semibold hover:bg-green-600 transition disabled:opacity-50"
-          >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-
-        <p className="text-center text-gray-500 text-xs mt-6">
-          Demo: admin@northcakes.com / admin123 | sarah@northcakes.com / staff123
-        </p>
+          </form>
+          <p className="text-center text-sm mt-6" style={{ color: MUTED_GRAY }}>
+            Admin &amp; Staff portal 
+          </p>
+        </div>
       </div>
+
+      <style>{`
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: none; }
+        }
+        @keyframes fadeSlideRight {
+          from { opacity: 0; transform: translateX(30px); }
+          to { opacity: 1; transform: none; }
+        }
+      `}</style>
     </div>
   );
 }

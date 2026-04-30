@@ -15,7 +15,8 @@ return new class extends Migration
             $table->string('scale_per_uni', 100)->nullable();
             $table->decimal('current_stock', 10, 2)->default(0);
             $table->boolean('is_active')->default(true);
-            $table->timestamps();
+            $table->timestamp('updated_at')->useCurrent()->nullable();
+            // No timestamps() – we only have updated_at
         });
     }
 

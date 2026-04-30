@@ -7,6 +7,11 @@ import Dashboard from './pages/Dashboard.jsx';
 import DashboardOverview from './pages/DashboardOverview.jsx';  // create this component
 import Users from './pages/Users.jsx';
 import Products from './pages/Products.jsx';
+import Orders from './pages/Orders.jsx';
+import Inventory from './pages/Inventory.jsx';
+import Ingredients from './pages/Ingredients';
+import Discounts from './pages/Discounts';  
+import Reports from './pages/Reports';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -20,9 +25,14 @@ createRoot(document.getElementById('root')).render(
         <Route path="products" element={<Products />} />
           {/* Index route (Overview) */}
           <Route index element={<DashboardOverview />} />
-
           {/* Users route */}
           <Route path="users" element={<Users />} />
+          <Route path="orders" element={<Orders />} />
+          <Route path="inventory" element={<Inventory />} />
+          <Route path="ingredients" element={<Ingredients />} />
+          <Route path="discounts" element={<Discounts />} />
+          <Route path="reports" element={<Reports />} />
+          
 
           {/* You will add other routes here later */}
           {/* <Route path="orders" element={<Orders />} /> */}

@@ -255,7 +255,7 @@ public function adminUpdateUser(Request $request, $id)
                 'track_stock'       => $request->track_stock ?? false,
                 'expiration_date' => $request->expiration_date ?: null,
                 'min_stock_level' => $request->min_stock_level ?? 0,
-                'image_url'         => Storage::url($imagePath),
+                'image_url' => url(Storage::url($imagePath)), // returns full URL
                 'stocked_at'        => now(),
             ]);
 
@@ -431,6 +431,20 @@ public function adminUpdateUser(Request $request, $id)
         ]);
     }
 
+        /**
+     * Toggle the is_active status of a user.
+     */
+    public function toggleUserStatus($id)
+    {
+        $user = User::findOrFail($id);
+        $user->update(['is_active' => !$user->is_active]);
+
+        return response()->json([
+            'message' => 'User status toggled',
+            'user'    => $user->fresh()
+        ]);
+    }
+
 
 
 
@@ -464,6 +478,31 @@ public function adminUpdateUser(Request $request, $id)
 
         ], 200);
     }
+
+    /**
+ * Soft‑delete a user by setting is_active = false.
+ * Only accessible by admin.
+ */
+    public function softDeleteUser($id)
+    {
+        $user = User::findOrFail($id);
+
+        // Do not allow admins to soft‑delete themselves?
+        // Optional: if (auth()->id() == $id) return error
+
+        $user->update(['is_active' => false]);
+
+        // Log activity
+        \App\Models\UserActivityLog::create([
+            'user_id'       => auth()->id(),
+            'activity_type' => 'inventory_updated', // or a new type 'user_deactivated'
+            'reference_id'  => $user->id,
+            'details'       => "Soft‑deleted user: {$user->first_name} {$user->last_name} (ID: {$user->id})",
+        ]);
+
+        return response()->json(['message' => 'User deactivated successfully']);
+    }
+
 
     public function logout(Request $request)
     {

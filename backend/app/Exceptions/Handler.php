@@ -3,6 +3,7 @@
 namespace App\Exceptions;
 
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Throwable;
 
 class Handler extends ExceptionHandler
@@ -18,6 +19,8 @@ class Handler extends ExceptionHandler
         'password_confirmation',
     ];
 
+ 
+
     /**
      * Register the exception handling callbacks for the application.
      */
@@ -27,4 +30,18 @@ class Handler extends ExceptionHandler
             //
         });
     }
+
+
+    public function render($request, Throwable $exception)
+{
+    if ($request->expectsJson() && $exception instanceof ModelNotFoundException) {
+        return response()->json([
+            'message' => 'Resource not found',
+            'model' => class_basename($exception->getModel()),
+            'ids' => $exception->getIds()
+        ], 404);
+    }
+
+    return parent::render($request, $exception);
+}
 }
