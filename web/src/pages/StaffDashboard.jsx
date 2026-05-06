@@ -2,23 +2,25 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/auth-context';
 import {
-  LayoutDashboard, Users, Package, Box, Percent, BarChart3,
-  LogOut, Cake, Menu,  UserCheck, ShoppingBag
+  LayoutDashboard, Package, ShoppingBag, Calendar, Percent,
+  BarChart3, LogOut, Cake, Menu
 } from 'lucide-react';
 
 const menuItems = [
-  { name: 'Overview', icon: LayoutDashboard, path: '/pages/dashboard' },
-  { name: 'Users', icon: Users, path: '/pages/dashboard/users' },
-  { name: 'Customers', icon: UserCheck, path: '/pages/dashboard/customers' }, // new
-  { name: 'Products', icon: Package, path: '/pages/dashboard/products' },
-  { name: 'Orders', icon: ShoppingBag, path: '/pages/dashboard/orders' }, // ← new
-  { name: 'Ingredients', icon: Box, path: '/pages/dashboard/ingredients' },
-  { name: 'Discounts', icon: Percent, path: '/pages/dashboard/discounts' },
-  { name: 'Inventory', icon: Package, path: '/pages/dashboard/inventory' },
-  { name: 'Reports', icon: BarChart3, path: '/pages/dashboard/reports' },
-]
+  { name: 'Overview', icon: LayoutDashboard, path: '/pages/staff-dashboard' },
+  { name: 'Orders', icon: ShoppingBag, path: '/pages/staff-dashboard/orders' },
+  { name: 'Discounts', icon: Percent, path: '/pages/staff-dashboard/discounts' },
+  { name: 'Schedule', icon: Calendar, path: '/pages/staff-dashboard/schedule' },
+  { name: 'Products', icon: Package, path: '/pages/staff-dashboard/products' },
+  // { name: 'Reports', icon: BarChart3, path: '/pages/staff-dashboard/reports' },
+];
 
-export default function Dashboard() {
+const SAGE = '#4F5F52';
+const CREAM = '#F2EDE4';
+const SOFT_WHITE = '#FFF3D9';
+const MUTED_GRAY = '#A6A29A';
+
+export default function StaffDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
@@ -36,15 +38,11 @@ export default function Dashboard() {
   };
 
   const today = new Date().toLocaleDateString('en-PH', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   });
 
   const SidebarInner = () => (
     <div className="flex flex-col h-full">
-      {/* Logo */}
       <div className="p-5 flex items-center gap-3 border-b border-white/10">
         <div className="w-10 h-10 bg-[#FFF3D9]/20 rounded-xl flex items-center justify-center shrink-0">
           <Cake className="w-5 h-5 text-[#FFF3D9]" />
@@ -52,21 +50,19 @@ export default function Dashboard() {
         {!collapsed && (
           <div>
             <h1 className="font-bold text-lg leading-tight text-[#FFF3D9]">North Cakes</h1>
-            <p className="text-[#A6A29A] text-xs">CDO Management</p>
+            <p className="text-[#A6A29A] text-xs">Staff Portal</p>
           </div>
         )}
       </div>
 
-      {/* Role badge */}
       {!collapsed && (
         <div className="px-5 py-3">
           <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#FFF3D9]/20 text-[#FFF3D9]">
-            ADMIN
+            STAFF
           </span>
         </div>
       )}
 
-      {/* Navigation */}
       <nav className="flex-1 px-3 pb-3 space-y-1 overflow-y-auto">
         {menuItems.map((item) => {
           const Icon = item.icon;
@@ -74,10 +70,7 @@ export default function Dashboard() {
           return (
             <button
               key={item.name}
-              onClick={() => {
-                navigate(item.path);
-                setMobileOpen(false);
-              }}
+              onClick={() => { navigate(item.path); setMobileOpen(false); }}
               className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
                 isActive
                   ? 'bg-[#FFF3D9] text-[#4F5F52] font-medium shadow-sm'
@@ -91,11 +84,10 @@ export default function Dashboard() {
         })}
       </nav>
 
-      {/* User & Logout */}
       <div className="p-3 border-t border-white/10">
         <div className={`flex items-center gap-3 mb-2 px-2 ${collapsed ? 'justify-center' : ''}`}>
           <div className="w-9 h-9 bg-[#FFF3D9]/20 rounded-full flex items-center justify-center shrink-0 text-[#FFF3D9] text-sm font-bold">
-            {user?.first_name?.[0] || 'A'}{user?.last_name?.[0] || 'D'}
+            {user?.first_name?.[0] || 'S'}{user?.last_name?.[0] || 'T'}
           </div>
           {!collapsed && (
             <div className="overflow-hidden">
@@ -118,8 +110,8 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F2EDE4]">
-      {/* Desktop sidebar */}
+    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: CREAM }}>
+      {/* Sidebar */}
       <aside
         className="fixed lg:relative z-20 flex flex-col bg-[#4F5F52] shrink-0 overflow-hidden transition-all duration-300"
         style={{ width: collapsed ? 72 : 260 }}
@@ -130,14 +122,8 @@ export default function Dashboard() {
       {/* Mobile overlay */}
       {mobileOpen && (
         <>
-          <div
-            className="lg:hidden fixed inset-0 bg-black/50 z-30"
-            onClick={() => setMobileOpen(false)}
-          />
-          <aside
-            className="lg:hidden fixed left-0 top-0 bottom-0 w-64 bg-[#4F5F52] z-40 flex flex-col"
-            style={{ animation: 'slideIn 0.25s ease' }}
-          >
+          <div className="lg:hidden fixed inset-0 bg-black/50 z-30" onClick={() => setMobileOpen(false)} />
+          <aside className="lg:hidden fixed left-0 top-0 bottom-0 w-64 bg-[#4F5F52] z-40 flex flex-col" style={{ animation: 'slideIn 0.25s ease' }}>
             <SidebarInner />
           </aside>
         </>
@@ -148,18 +134,10 @@ export default function Dashboard() {
         {/* Topbar */}
         <header className="bg-[#FFF3D9] border-b border-[#A6A29A]/20 px-5 py-3 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            {/* Desktop collapse */}
-            <button
-              onClick={() => setCollapsed(!collapsed)}
-              className="hidden lg:flex p-2 rounded-lg text-[#4F5F52] hover:bg-[#4F5F52]/10 transition-colors"
-            >
+            <button onClick={() => setCollapsed(!collapsed)} className="hidden lg:flex p-2 rounded-lg text-[#4F5F52] hover:bg-[#4F5F52]/10 transition-colors">
               <Menu className="w-5 h-5" />
             </button>
-            {/* Mobile open */}
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="lg:hidden p-2 rounded-lg text-[#4F5F52] hover:bg-[#4F5F52]/10"
-            >
+            <button onClick={() => setMobileOpen(true)} className="lg:hidden p-2 rounded-lg text-[#4F5F52] hover:bg-[#4F5F52]/10">
               <Menu className="w-5 h-5" />
             </button>
             <div>
@@ -171,15 +149,14 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden sm:block text-xs px-2.5 py-1 rounded-full font-medium capitalize bg-[#4F5F52]/10 text-[#4F5F52]">
-              Admin
+              Staff
             </span>
             <div className="w-8 h-8 bg-[#4F5F52] rounded-full flex items-center justify-center text-[#FFF3D9] text-xs font-bold">
-              {user?.first_name?.[0] || 'A'}{user?.last_name?.[0] || 'D'}
+              {user?.first_name?.[0] || 'S'}{user?.last_name?.[0] || 'T'}
             </div>
           </div>
         </header>
 
-        {/* Page content – nested routes */}
         <main className="flex-1 overflow-y-auto p-5 lg:p-6 bg-[#F2EDE4]">
           <div className="animate-fadeUp">
             <Outlet />
@@ -187,7 +164,6 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {/* Keyframes for animations */}
       <style>{`
         @keyframes slideIn { from { transform: translateX(-100%); } to { transform: none; } }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }

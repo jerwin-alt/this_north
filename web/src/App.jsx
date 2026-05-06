@@ -62,12 +62,14 @@ export default function App() {
         if (currentUser.role === 'admin' || currentUser.role === 'owner') {
           console.log("7. Access granted, navigating to dashboard...");
           navigate('/pages/Dashboard');
+        } else if (currentUser.role === 'staff') {
+          console.log("8. Access granted, navigating to dashboard...");
+          navigate('/pages/staff-dashboard');
         } else {
-          console.log("7. Access denied - role is:", currentUser.role);
-          alert("Access Denied. Owner Access Only.");
+          alert('Access Denied. Unknown role.');
           await useAuth.getState().logout();
         }
-      } else {
+            } else {
         console.log("5. No user found after login");
         alert("Login Failed: Unable to Fetch User Information");
       }

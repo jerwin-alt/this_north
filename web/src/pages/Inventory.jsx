@@ -1,58 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
-import {
-  Plus, Edit2, Trash2, X, Package, AlertCircle,
-  Loader, TrendingUp, TrendingDown, Minus, Calendar,
-  User, FileText, Hash
-} from 'lucide-react';
+import { Loader, AlertCircle, Package, Search, CalendarDays, SlidersHorizontal, TrendingUp, ClipboardList } from 'lucide-react';
 
-// Color palette (matches your brand)
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
 const MUTED_GRAY = '#A6A29A';
 const SOFT_WHITE = '#FFF3D9';
 
 export default function Inventory() {
+  const [sales, setSales] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [ingredients, setIngredients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Modal state (unchanged)
-  const [showModal, setShowModal] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [fieldErrors, setFieldErrors] = useState({});
-  const [successMessage, setSuccessMessage] = useState('');
+  const [startDate, setStartDate] = useState(
+    new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 10)
+  );
+  const [endDate, setEndDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [typeFilter, setTypeFilter] = useState('all');
 
-  // Form data (unchanged)
-  const [formData, setFormData] = useState({
-    ingredient_id: '',
-    transaction_type: 'purchase',
-    quantity: '',
-    reference_type: '',
-    reference_id: '',
-    notes: '',
-  });
-
-  // Fetch data (unchanged)
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [transRes, ingRes] = await Promise.all([
-        axios.get('/inventory-transactions'),
-        axios.get('/ingredients')
+      const [salesRes, transRes] = await Promise.all([
+        axios.get('/inventory/product-sales', { params: { start: startDate, end: endDate } }),
+        axios.get('/inventory/ingredient-transactions', {
+          params: { start: startDate, end: endDate, type: typeFilter !== 'all' ? typeFilter : undefined }
+        })
       ]);
+      setSales(salesRes.data.sales || []);
       setTransactions(transRes.data.transactions || []);
-      setIngredients(ingRes.data.ingredients || []);
       setError(null);
     } catch (err) {
-      console.error('Error fetching data:', err);
+      console.error(err);
       if (err.response?.status === 401) setError('Unauthorized. Please login again.');
       else if (err.response?.status === 403) setError('Access denied. Admin privileges required.');
-      else setError(err.response?.data?.message || 'Failed to load data');
+      else setError(err.response?.data?.message || 'Failed to load inventory data');
     } finally {
       setLoading(false);
     }
@@ -60,153 +45,22 @@ export default function Inventory() {
 
   useEffect(() => {
     fetchData();
-  }, []);
-
-  // Reset form (unchanged)
-  const resetForm = () => {
-    setFormData({
-      ingredient_id: '',
-      transaction_type: 'purchase',
-      quantity: '',
-      reference_type: '',
-      reference_id: '',
-      notes: '',
-    });
-    setFieldErrors({});
-    setFormError('');
-    setSuccessMessage('');
-  };
-
-  const openAddModal = () => {
-    resetForm();
-    setEditMode(false);
-    setEditingTransaction(null);
-    setShowModal(true);
-  };
-
-  const openEditModal = (transaction) => {
-    setEditMode(true);
-    setEditingTransaction(transaction);
-    setFormData({
-      ingredient_id: transaction.ingredient_id,
-      transaction_type: transaction.transaction_type,
-      quantity: transaction.quantity,
-      reference_type: transaction.reference_type || '',
-      reference_id: transaction.reference_id || '',
-      notes: transaction.notes || '',
-    });
-    setFieldErrors({});
-    setFormError('');
-    setSuccessMessage('');
-    setShowModal(true);
-  };
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    if (fieldErrors[name]) {
-      setFieldErrors(prev => ({ ...prev, [name]: '' }));
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setFormError('');
-    setFieldErrors({});
-
-    if (!formData.ingredient_id) {
-      setFormError('Please select an ingredient');
-      setSubmitting(false);
-      return;
-    }
-    if (!formData.transaction_type) {
-      setFormError('Transaction type is required');
-      setSubmitting(false);
-      return;
-    }
-    if (!formData.quantity || isNaN(parseFloat(formData.quantity)) || parseFloat(formData.quantity) <= 0) {
-      setFormError('Quantity must be a positive number');
-      setSubmitting(false);
-      return;
-    }
-
-    const payload = {
-      ...formData,
-      quantity: parseFloat(formData.quantity),
-      reference_id: formData.reference_id ? parseInt(formData.reference_id) : null,
-    };
-
-    try {
-      if (editMode && editingTransaction) {
-        await axios.put(`/inventory-transactions/${editingTransaction.id}`, payload);
-        setSuccessMessage('Transaction updated successfully!');
-      } else {
-        await axios.post('/inventory-transactions', payload);
-        setSuccessMessage('Transaction created successfully!');
-      }
-      await fetchData();
-      setTimeout(() => {
-        setShowModal(false);
-        resetForm();
-        setSuccessMessage('');
-      }, 1200);
-    } catch (err) {
-      console.error('Save error:', err);
-      if (err.response?.status === 422 && err.response?.data?.errors) {
-        setFieldErrors(err.response.data.errors);
-        setFormError('Please correct the errors below.');
-      } else if (err.response?.data?.message) {
-        setFormError(err.response.data.message);
-      } else {
-        setFormError(editMode ? 'Failed to update transaction' : 'Failed to create transaction');
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const deleteTransaction = async (id) => {
-    if (!window.confirm('Delete this transaction? This will reverse its effect on ingredient stock.')) return;
-    try {
-      await axios.delete(`/inventory-transactions/${id}`);
-      await fetchData();
-    } catch (err) {
-      const msg = err.response?.data?.message || 'Delete failed';
-      alert(msg);
-    }
-  };
-
-  const getIngredientName = (id) => {
-    const ing = ingredients.find(i => i.id === id);
-    return ing ? ing.name : '—';
-  };
-
-  const TypeBadge = ({ type }) => {
-    const config = {
-      purchase: { icon: TrendingUp, text: 'Purchase', color: 'bg-green-100 text-green-700' },
-      usage: { icon: TrendingDown, text: 'Usage', color: 'bg-red-100 text-red-700' },
-      adjustment: { icon: Minus, text: 'Adjustment', color: 'bg-blue-100 text-blue-700' },
-    };
-    const { icon: Icon, text, color } = config[type] || { icon: Package, text: type, color: 'bg-gray-100 text-gray-700' };
-    return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>
-        <Icon size={12} /> {text}
-      </span>
-    );
-  };
+  }, [startDate, endDate, typeFilter]);
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <Loader className="animate-spin" style={{ color: SAGE }} size={36} />
+      <div style={{ background: CREAM, minHeight: '100vh' }} className="flex justify-center items-center h-64">
+        <div className="flex flex-col items-center gap-3">
+          <Loader className="animate-spin" style={{ color: SAGE }} size={36} />
+          <p style={{ color: MUTED_GRAY, fontSize: '0.85rem', letterSpacing: '0.05em' }}>Loading inventory...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-4 rounded-lg flex items-center gap-2" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
+      <div className="p-4 rounded-2xl flex items-center gap-3 m-6" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
         <AlertCircle size={20} />
         <span>Error: {error}</span>
       </div>
@@ -214,255 +68,412 @@ export default function Inventory() {
   }
 
   return (
-    <div className="space-y-6" style={{ background: CREAM, minHeight: '100vh', padding: '32px 24px' }}>
-      <div className="max-w-7xl mx-auto">
-        {/* Header with title and button – animated */}
-        <div className="flex flex-wrap justify-between items-center gap-4 mb-6 animate-fade-in-up">
+    <div style={{ background: CREAM, minHeight: '100vh', padding: '36px 28px' }}>
+      <style>{`
+        .grain-overlay {
+          position: fixed;
+          inset: 0;
+          pointer-events: none;
+          z-index: 0;
+          opacity: 0.028;
+          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+          background-repeat: repeat;
+          background-size: 128px;
+        }
+        .divider-line {
+          height: 1px;
+          background: linear-gradient(90deg, transparent, rgba(79,95,82,0.15), transparent);
+        }
+        .inv-table tbody tr {
+          transition: background 0.15s ease;
+        }
+        .inv-table tbody tr:hover {
+          background: rgba(242,237,228,0.7);
+        }
+        .filter-input {
+          transition: all 0.2s ease;
+          outline: none;
+        }
+        .filter-input:focus {
+          box-shadow: 0 0 0 3px rgba(79,95,82,0.12);
+          border-color: #4F5F52 !important;
+        }
+        .type-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 3px 10px;
+          border-radius: 999px;
+          font-size: 0.68rem;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+        }
+        .stock-arrow {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 0.78rem;
+          font-weight: 600;
+          padding: 2px 8px;
+          border-radius: 6px;
+        }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(16px); }
+          to { opacity: 1; transform: none; }
+        }
+        .fade-in { animation: fadeInUp 0.4s ease forwards; }
+        .fade-in-1 { animation: fadeInUp 0.4s 0.05s ease both; }
+        .fade-in-2 { animation: fadeInUp 0.4s 0.1s ease both; }
+        .fade-in-3 { animation: fadeInUp 0.4s 0.15s ease both; }
+        .fade-in-4 { animation: fadeInUp 0.4s 0.2s ease both; }
+      `}</style>
+
+      <div className="grain-overlay" />
+
+      <div className="max-w-7xl mx-auto relative" style={{ zIndex: 1 }}>
+
+        {/* ── Header ── */}
+        <div className="flex flex-wrap justify-between items-start gap-4 mb-8 fade-in">
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: SAGE }}>Inventory Transactions</h1>
-            <p className="text-sm" style={{ color: MUTED_GRAY }}>Record purchases, usage, and stock adjustments</p>
+            <div className="flex items-center gap-3 mb-1">
+              <div style={{
+                width: 36, height: 36,
+                background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                borderRadius: 10,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(79,95,82,0.25)',
+                flexShrink: 0,
+              }}>
+                <ClipboardList size={18} color="#fff" />
+              </div>
+              <h1 style={{ color: SAGE, fontSize: '1.55rem', fontWeight: 700, letterSpacing: '-0.02em' }}>
+                Inventory Records
+              </h1>
+            </div>
+            <p style={{ color: MUTED_GRAY, fontSize: '0.82rem', letterSpacing: '0.03em', marginLeft: 48 }}>
+              Automatically updated when orders are confirmed and ingredients are adjusted
+            </p>
           </div>
-          <button
-            onClick={openAddModal}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-sm transition-colors"
-            style={{ background: SAGE }}
-            onMouseEnter={e => e.currentTarget.style.background = '#3e4c42'}
-            onMouseLeave={e => e.currentTarget.style.background = SAGE}
-          >
-            <Plus size={18} /> Add Transaction
-          </button>
         </div>
 
-        {/* Main Card – matching reference style */}
-        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden animate-fade-in-up" style={{ borderColor: CREAM }}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-cream-light" style={{ background: CREAM }}>
-                <tr>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>ID</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Ingredient</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Type</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Quantity</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Stock Change</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Reference</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Created By</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Date</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y" style={{ borderColor: CREAM }}>
-                {transactions.length === 0 ? (
-                  <tr>
-                    <td colSpan="9" className="text-center py-12" style={{ color: MUTED_GRAY }}>
-                      <Package className="mx-auto h-12 w-12 mb-2" style={{ color: MUTED_GRAY }} />
-                      No transactions yet
-                    </td>
+        {/* ── Divider ── */}
+        <div className="divider-line mb-7" />
+
+        {/* ── Filters ── */}
+        <div className="fade-in-1" style={{
+          background: '#fff',
+          borderRadius: 20,
+          border: '1.5px solid rgba(242,237,228,0.9)',
+          boxShadow: '0 2px 12px rgba(79,95,82,0.06)',
+          padding: '20px 24px',
+          marginBottom: 32,
+        }}>
+          <div className="flex items-center gap-2 mb-4">
+            <SlidersHorizontal size={14} style={{ color: MUTED_GRAY }} />
+            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: MUTED_GRAY, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Filter Records
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: SAGE, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
+                Start Date
+              </label>
+              <div style={{ position: 'relative' }}>
+                <CalendarDays size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: MUTED_GRAY, pointerEvents: 'none' }} />
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="filter-input w-full rounded-xl border text-sm"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', padding: '9px 12px 9px 32px' }}
+                />
+              </div>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: SAGE, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
+                End Date
+              </label>
+              <div style={{ position: 'relative' }}>
+                <CalendarDays size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: MUTED_GRAY, pointerEvents: 'none' }} />
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="filter-input w-full rounded-xl border text-sm"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', padding: '9px 12px 9px 32px' }}
+                />
+              </div>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: SAGE, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
+                Transaction Type
+              </label>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="filter-input w-full rounded-xl border text-sm"
+                style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', padding: '9px 12px' }}
+              >
+                <option value="all">All Types</option>
+                <option value="purchase">Purchase</option>
+                <option value="usage">Usage</option>
+                <option value="adjustment">Adjustment</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Product Sales Table ── */}
+        <div className="mb-10 fade-in-2">
+          <div className="flex items-center gap-2.5 mb-4">
+            <div style={{
+              width: 28, height: 28,
+              background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+              borderRadius: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(79,95,82,0.2)',
+            }}>
+              <TrendingUp size={13} color="#fff" />
+            </div>
+            <h2 style={{ color: SAGE, fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
+              Product Sales
+            </h2>
+            <span style={{
+              fontSize: '0.68rem', fontWeight: 600,
+              color: MUTED_GRAY,
+              background: 'rgba(166,162,154,0.12)',
+              border: '1px solid rgba(166,162,154,0.2)',
+              borderRadius: 999,
+              padding: '2px 8px',
+              letterSpacing: '0.04em',
+            }}>
+              from confirmed orders
+            </span>
+          </div>
+
+          <div style={{
+            background: '#fff',
+            borderRadius: 20,
+            border: '1.5px solid rgba(242,237,228,0.9)',
+            boxShadow: '0 2px 12px rgba(79,95,82,0.06)',
+            overflow: 'hidden',
+          }}>
+            <div className="overflow-x-auto">
+              <table className="inv-table w-full text-sm">
+                <thead>
+                  <tr style={{ background: `linear-gradient(135deg, ${CREAM}, rgba(255,243,217,0.5))` }}>
+                    <th style={{ padding: '13px 20px', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, color: SAGE, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Product</th>
+                    <th style={{ padding: '13px 20px', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, color: SAGE, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Category</th>
+                    <th style={{ padding: '13px 20px', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, color: SAGE, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Qty Sold</th>
+                    <th style={{ padding: '13px 20px', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, color: SAGE, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Revenue</th>
                   </tr>
-                ) : (
-                  transactions.map(trans => (
-                    <tr key={trans.id} className="hover:bg-[#F2EDE4] transition-colors">
-                      <td className="px-4 py-3 whitespace-nowrap text-xs" style={{ color: MUTED_GRAY }}>#{trans.id}</td>
-                      <td className="px-4 py-3 whitespace-nowrap font-medium" style={{ color: SAGE }}>
-                        {getIngredientName(trans.ingredient_id)}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap"><TypeBadge type={trans.transaction_type} /></td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm" style={{ color: MUTED_GRAY }}>
-                        {trans.quantity} {trans.ingredient?.unit || ''}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm">
-                        <span className={trans.new_stock > trans.previous_stock ? 'text-green-600' : 'text-red-600'}>
-                          {trans.previous_stock} → {trans.new_stock}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm" style={{ color: MUTED_GRAY }}>
-                        {trans.reference_type ? `${trans.reference_type} #${trans.reference_id}` : '—'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm" style={{ color: MUTED_GRAY }}>
-                        {trans.created_by?.first_name || 'System'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm" style={{ color: MUTED_GRAY }}>
-                        {new Date(trans.created_at).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <button
-                          onClick={() => openEditModal(trans)}
-                          className="p-1.5 rounded-lg transition-colors hover:bg-sage/10 mr-2"
-                          style={{ color: SAGE }}
-                          title="Edit transaction"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button
-                          onClick={() => deleteTransaction(trans.id)}
-                          className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
-                          style={{ color: '#EF4444' }}
-                          title="Delete transaction"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                </thead>
+                <tbody style={{ borderTop: `1px solid ${CREAM}` }}>
+                  {sales.length === 0 ? (
+                    <tr>
+                      <td colSpan="4" style={{ textAlign: 'center', padding: '48px 20px', color: MUTED_GRAY }}>
+                        <div style={{
+                          width: 56, height: 56,
+                          background: 'rgba(166,162,154,0.1)',
+                          borderRadius: 16,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          margin: '0 auto 12px',
+                          border: '1.5px dashed rgba(166,162,154,0.3)',
+                        }}>
+                          <Package size={24} style={{ color: MUTED_GRAY, opacity: 0.4 }} />
+                        </div>
+                        <p style={{ fontSize: '0.85rem' }}>No sales in this period</p>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    sales.map((item, idx) => (
+                      <tr key={idx} style={{ borderTop: idx === 0 ? 'none' : `1px solid rgba(242,237,228,0.8)` }}>
+                        <td style={{ padding: '13px 20px', fontWeight: 600, color: SAGE, fontSize: '0.85rem' }}>{item.product_name}</td>
+                        <td style={{ padding: '13px 20px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            background: 'rgba(79,95,82,0.07)',
+                            color: SAGE,
+                            borderRadius: 6,
+                            padding: '2px 9px',
+                            fontSize: '0.75rem',
+                            fontWeight: 500,
+                          }}>
+                            {item.category_name || '—'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '13px 20px', color: SAGE, fontWeight: 600, fontSize: '0.85rem' }}>{item.total_quantity}</td>
+                        <td style={{ padding: '13px 20px' }}>
+                          <span style={{ color: SAGE, fontWeight: 800, fontSize: '0.95rem', letterSpacing: '-0.01em' }}>
+                            ₱{parseFloat(item.total_revenue).toLocaleString()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Ingredient Transactions Table ── */}
+        <div className="fade-in-3">
+          <div className="flex items-center gap-2.5 mb-4">
+            <div style={{
+              width: 28, height: 28,
+              background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+              borderRadius: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(79,95,82,0.2)',
+            }}>
+              <Package size={13} color="#fff" />
+            </div>
+            <h2 style={{ color: SAGE, fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
+              Ingredient Transactions
+            </h2>
+            {transactions.length > 0 && (
+              <span style={{
+                fontSize: '0.68rem', fontWeight: 600,
+                color: MUTED_GRAY,
+                background: 'rgba(166,162,154,0.12)',
+                border: '1px solid rgba(166,162,154,0.2)',
+                borderRadius: 999,
+                padding: '2px 8px',
+                letterSpacing: '0.04em',
+              }}>
+                {transactions.length} record{transactions.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
+          <div style={{
+            background: '#fff',
+            borderRadius: 20,
+            border: '1.5px solid rgba(242,237,228,0.9)',
+            boxShadow: '0 2px 12px rgba(79,95,82,0.06)',
+            overflow: 'hidden',
+          }}>
+            <div className="overflow-x-auto">
+              <table className="inv-table w-full text-sm">
+                <thead>
+                  <tr style={{ background: `linear-gradient(135deg, ${CREAM}, rgba(255,243,217,0.5))` }}>
+                    {['Ingredient', 'Type', 'Quantity', 'Stock Change', 'Reference', 'Created By', 'Date'].map(col => (
+                      <th key={col} style={{ padding: '13px 20px', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, color: SAGE, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody style={{ borderTop: `1px solid ${CREAM}` }}>
+                  {transactions.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" style={{ textAlign: 'center', padding: '48px 20px', color: MUTED_GRAY }}>
+                        <div style={{
+                          width: 56, height: 56,
+                          background: 'rgba(166,162,154,0.1)',
+                          borderRadius: 16,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          margin: '0 auto 12px',
+                          border: '1.5px dashed rgba(166,162,154,0.3)',
+                        }}>
+                          <Package size={24} style={{ color: MUTED_GRAY, opacity: 0.4 }} />
+                        </div>
+                        <p style={{ fontSize: '0.85rem' }}>No transactions found</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    transactions.map((trans, idx) => (
+                      <tr key={trans.id} style={{ borderTop: idx === 0 ? 'none' : `1px solid rgba(242,237,228,0.8)` }}>
+                        <td style={{ padding: '13px 20px', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontWeight: 600, color: SAGE, fontSize: '0.85rem' }}>
+                            {trans.ingredient?.name || '—'}
+                          </span>
+                          {trans.ingredient?.unit && (
+                            <span style={{
+                              marginLeft: 6,
+                              fontSize: '0.68rem',
+                              fontWeight: 500,
+                              color: MUTED_GRAY,
+                              background: 'rgba(166,162,154,0.1)',
+                              borderRadius: 4,
+                              padding: '1px 6px',
+                            }}>
+                              {trans.ingredient.unit}
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '13px 20px' }}>
+                          <span className="type-badge" style={{
+                            background: trans.transaction_type === 'purchase'
+                              ? 'rgba(52,196,104,0.1)'
+                              : trans.transaction_type === 'usage'
+                                ? 'rgba(239,68,68,0.08)'
+                                : 'rgba(79,130,222,0.1)',
+                            color: trans.transaction_type === 'purchase'
+                              ? '#1a7a3c'
+                              : trans.transaction_type === 'usage'
+                                ? '#c0392b'
+                                : '#2c5eb0',
+                            border: `1px solid ${trans.transaction_type === 'purchase'
+                              ? 'rgba(52,196,104,0.2)'
+                              : trans.transaction_type === 'usage'
+                                ? 'rgba(239,68,68,0.15)'
+                                : 'rgba(79,130,222,0.2)'}`,
+                          }}>
+                            <span style={{
+                              width: 5, height: 5, borderRadius: '50%',
+                              background: trans.transaction_type === 'purchase' ? '#34c468' : trans.transaction_type === 'usage' ? '#ef4444' : '#4f82de',
+                              display: 'inline-block',
+                              flexShrink: 0,
+                            }} />
+                            {trans.transaction_type}
+                          </span>
+                        </td>
+                        <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.85rem', fontWeight: 500 }}>
+                          {trans.quantity}
+                        </td>
+                        <td style={{ padding: '13px 20px' }}>
+                          <span className="stock-arrow" style={{
+                            background: trans.new_stock > trans.previous_stock
+                              ? 'rgba(52,196,104,0.08)'
+                              : 'rgba(239,68,68,0.07)',
+                            color: trans.new_stock > trans.previous_stock ? '#1a7a3c' : '#c0392b',
+                          }}>
+                            {trans.previous_stock}
+                            <span style={{ opacity: 0.5, fontSize: '0.7rem' }}>→</span>
+                            {trans.new_stock}
+                          </span>
+                        </td>
+                        <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.78rem' }}>
+                          {trans.reference_type ? (
+                            <span style={{
+                              background: 'rgba(79,95,82,0.06)',
+                              borderRadius: 6,
+                              padding: '2px 8px',
+                              fontWeight: 500,
+                              color: SAGE,
+                            }}>
+                              {trans.reference_type} #{trans.reference_id}
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.78rem', fontWeight: 500 }}>
+                          {trans.created_by?.first_name || 'System'}
+                        </td>
+                        <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                          {new Date(trans.created_at).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Modal – unchanged (already refined) */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl animate-modal-in">
-            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center" style={{ borderColor: CREAM }}>
-              <h3 className="text-xl font-bold" style={{ color: SAGE }}>
-                {editMode ? 'Edit Transaction' : 'New Transaction'}
-              </h3>
-              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-cream transition-colors" style={{ color: MUTED_GRAY }}>
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-5">
-              {formError && (
-                <div className="p-3 rounded-lg text-sm" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
-                  {formError}
-                </div>
-              )}
-              {successMessage && (
-                <div className="p-3 rounded-lg text-sm" style={{ background: '#ECFDF5', color: '#059669', border: '1px solid #D1FAE5' }}>
-                  {successMessage}
-                </div>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Ingredient *</label>
-                  <select
-                    name="ingredient_id"
-                    value={formData.ingredient_id}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20"
-                    style={{ borderColor: CREAM, color: SAGE }}
-                  >
-                    <option value="">Select ingredient</option>
-                    {ingredients.map(ing => (
-                      <option key={ing.id} value={ing.id}>{ing.name} ({ing.unit})</option>
-                    ))}
-                  </select>
-                  {fieldErrors.ingredient_id && <p className="text-red-500 text-xs mt-1">{fieldErrors.ingredient_id[0]}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Transaction Type *</label>
-                  <select
-                    name="transaction_type"
-                    value={formData.transaction_type}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20"
-                    style={{ borderColor: CREAM, color: SAGE }}
-                  >
-                    <option value="purchase">Purchase (adds stock)</option>
-                    <option value="usage">Usage (deducts stock)</option>
-                    <option value="adjustment">Adjustment (adds stock)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Quantity *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    name="quantity"
-                    value={formData.quantity}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20"
-                    style={{ borderColor: CREAM, color: SAGE }}
-                  />
-                  <p className="text-xs mt-1" style={{ color: MUTED_GRAY }}>Positive number only</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Reference Type</label>
-                  <select
-                    name="reference_type"
-                    value={formData.reference_type}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20"
-                    style={{ borderColor: CREAM, color: SAGE }}
-                  >
-                    <option value="">None</option>
-                    <option value="order">Order</option>
-                    <option value="purchase_order">Purchase Order</option>
-                    <option value="adjustment">Adjustment</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Reference ID</label>
-                  <input
-                    type="number"
-                    name="reference_id"
-                    value={formData.reference_id}
-                    onChange={handleInputChange}
-                    placeholder="Optional"
-                    className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20"
-                    style={{ borderColor: CREAM, color: SAGE }}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Notes</label>
-                  <textarea
-                    name="notes"
-                    value={formData.notes}
-                    onChange={handleInputChange}
-                    rows="2"
-                    className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20"
-                    style={{ borderColor: CREAM, color: SAGE }}
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t" style={{ borderColor: CREAM }}>
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 rounded-xl border text-sm transition-colors"
-                  style={{ borderColor: CREAM, color: MUTED_GRAY }}
-                  onMouseEnter={e => e.currentTarget.style.background = CREAM}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-4 py-2 rounded-xl text-white text-sm flex items-center gap-2 disabled:opacity-50 transition-colors"
-                  style={{ background: SAGE }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#3e4c42'}
-                  onMouseLeave={e => e.currentTarget.style.background = SAGE}
-                >
-                  {submitting && <Loader size={16} className="animate-spin" />}
-                  {submitting ? (editMode ? 'Updating...' : 'Creating...') : (editMode ? 'Update' : 'Create')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      <style>{`
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: none; }
-        }
-        .animate-fade-in-up {
-          animation: fadeInUp 0.4s ease forwards;
-        }
-        @keyframes modalIn {
-          from { opacity: 0; transform: scale(0.95) translateY(10px); }
-          to { opacity: 1; transform: none; }
-        }
-        .animate-modal-in {
-          animation: modalIn 0.2s ease;
-        }
-      `}</style>
     </div>
   );
 }

@@ -12,6 +12,14 @@ import Inventory from './pages/Inventory.jsx';
 import Ingredients from './pages/Ingredients';
 import Discounts from './pages/Discounts';  
 import Reports from './pages/Reports';
+import Customers from './pages/Customers';  // at top
+
+import StaffDashboard from './pages/StaffDashboard.jsx';
+import StaffOverview from './pages/StaffOverview.jsx'; // create this too
+import StaffOrders from './pages/StaffOrders.jsx'; // create this too
+import StaffDiscounts from './pages/StaffDiscounts.jsx'; 
+import StaffProducts from './pages/StaffProducts.jsx';
+
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -27,12 +35,12 @@ createRoot(document.getElementById('root')).render(
           <Route index element={<DashboardOverview />} />
           {/* Users route */}
           <Route path="users" element={<Users />} />
+          <Route path="customers" element={<Customers />} />
           <Route path="orders" element={<Orders />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="ingredients" element={<Ingredients />} />
           <Route path="discounts" element={<Discounts />} />
           <Route path="reports" element={<Reports />} />
-          
 
           {/* You will add other routes here later */}
           {/* <Route path="orders" element={<Orders />} /> */}
@@ -41,6 +49,15 @@ createRoot(document.getElementById('root')).render(
           {/* <Route path="discounts" element={<Discounts />} /> */}
           {/* <Route path="settings" element={<Settings />} /> */}
         </Route>
+
+          <Route path="/pages/staff-dashboard" element={<StaffDashboard />}>
+            <Route index element={<StaffOverview />} />
+            <Route path="orders" element={<StaffOrders />} />
+            <Route path="discounts" element={<StaffDiscounts />} /> 
+            <Route path="products" element={<StaffProducts />} />
+          {/* other staff sub‑routes if needed later */}
+        </Route>
+
       </Routes>
     </BrowserRouter>
   </StrictMode>

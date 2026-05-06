@@ -71,7 +71,6 @@ export default function Ingredients() {
     setFormError('');
   };
 
-  // Open modal for adding
   const openAddModal = () => {
     resetForm();
     setEditMode(false);
@@ -79,7 +78,6 @@ export default function Ingredients() {
     setShowModal(true);
   };
 
-  // Open modal for editing
   const openEditModal = (ingredient) => {
     setEditMode(true);
     setEditingIngredient(ingredient);
@@ -95,7 +93,6 @@ export default function Ingredients() {
     setShowModal(true);
   };
 
-  // Handle input changes
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
@@ -107,7 +104,6 @@ export default function Ingredients() {
     }
   };
 
-  // Submit create/update
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
@@ -138,7 +134,6 @@ export default function Ingredients() {
     }
   };
 
-  // Delete ingredient
   const deleteIngredient = async (id, name) => {
     if (!window.confirm(`Delete ingredient "${name}"? This will fail if it's used in any product recipe.`)) return;
     try {
@@ -150,105 +145,278 @@ export default function Ingredients() {
     }
   };
 
-  // Helper for active badge (using palette)
-  const ActiveBadge = ({ isActive }) => (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-      isActive ? 'bg-sage/20 text-sage-dark' : 'bg-muted-gray/20 text-muted-gray'
-    }`}>
-      {isActive ? 'Active' : 'Inactive'}
-    </span>
-  );
-
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <Loader className="animate-spin" style={{ color: SAGE }} size={36} />
+      <div style={{ background: CREAM, minHeight: '100vh' }} className="flex justify-center items-center h-64">
+        <div className="flex flex-col items-center gap-3">
+          <Loader className="animate-spin" style={{ color: SAGE }} size={36} />
+          <p style={{ color: MUTED_GRAY, fontSize: '0.85rem', letterSpacing: '0.05em' }}>Loading ingredients…</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-4 rounded-lg flex items-center gap-2" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
+      <div className="flex items-center gap-3 p-4 rounded-2xl m-6" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
         <AlertCircle size={20} />
-        <span>Error loading ingredients: {error}</span>
+        <span style={{ fontSize: '0.875rem' }}>Error loading ingredients: {error}</span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6" style={{ background: CREAM, minHeight: '100vh', padding: '32px 24px' }}>
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
+    <div style={{ background: CREAM, minHeight: '100vh', padding: '36px 28px' }}>
+      <style>{`
+        .grain-overlay {
+          position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0.028;
+          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+          background-repeat: repeat; background-size: 128px;
+        }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+        .anim-up { animation: fadeInUp 0.4s cubic-bezier(0.25,0.46,0.45,0.94) forwards; }
+        .anim-up-delay { animation: fadeInUp 0.4s 0.08s cubic-bezier(0.25,0.46,0.45,0.94) both; }
+        @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(12px); } to { opacity: 1; transform: none; } }
+        .anim-modal { animation: modalIn 0.25s cubic-bezier(0.25,0.46,0.45,0.94); }
+        .divider-line { height: 1px; background: linear-gradient(90deg, transparent, rgba(79,95,82,0.15), transparent); }
+        .table-row-hover { transition: background 0.15s ease; }
+        .table-row-hover:hover { background: rgba(242,237,228,0.65) !important; }
+        .action-btn { transition: all 0.18s ease; border-radius: 10px; border: none; cursor: pointer; }
+        .action-btn:hover { transform: scale(1.12); }
+        .primary-btn { position: relative; overflow: hidden; transition: all 0.22s cubic-bezier(0.4,0,0.2,1); border: none; cursor: pointer; }
+        .primary-btn::before { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.1); opacity: 0; transition: opacity 0.2s; }
+        .primary-btn:hover::before { opacity: 1; }
+        .primary-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(79,95,82,0.3); }
+        .primary-btn:active { transform: translateY(0); }
+        .sec-btn { transition: all 0.2s ease; cursor: pointer; }
+        .sec-btn:hover { background: rgba(79,95,82,0.07) !important; transform: translateY(-1px); }
+        .modal-input:focus { box-shadow: 0 0 0 3px rgba(79,95,82,0.12); border-color: #4F5F52 !important; outline: none; }
+        .checkbox-custom { accent-color: #4F5F52; }
+        .stock-pill-ok { background: rgba(52,211,104,0.1); color: #1a7a3a; border: 1px solid rgba(52,211,104,0.2); }
+        .stock-pill-empty { background: rgba(239,68,68,0.08); color: #dc2626; border: 1px solid rgba(239,68,68,0.18); }
+      `}</style>
+
+      <div className="grain-overlay" />
+
+      <div className="max-w-7xl mx-auto" style={{ position: 'relative', zIndex: 1 }}>
+
+        {/* ── Header ── */}
+        <div className="anim-up flex flex-wrap justify-between items-start gap-4 mb-8">
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: SAGE }}>Ingredient Management</h1>
-            <p className="text-sm" style={{ color: MUTED_GRAY }}>Manage raw materials and stock inventory</p>
+            <div className="flex items-center gap-3 mb-1">
+              <div style={{
+                width: 36, height: 36,
+                background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                borderRadius: 10,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(79,95,82,0.25)',
+              }}>
+                <Box size={18} color="#fff" />
+              </div>
+              <h1 style={{ color: SAGE, fontSize: '1.55rem', fontWeight: 700, letterSpacing: '-0.02em' }}>
+                Ingredient Management
+              </h1>
+            </div>
+            <p style={{ color: MUTED_GRAY, fontSize: '0.82rem', letterSpacing: '0.03em', marginLeft: 48 }}>
+              {ingredients.length} ingredient{ingredients.length !== 1 ? 's' : ''} in inventory
+            </p>
           </div>
+
           <button
             onClick={openAddModal}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-sm transition-colors"
-            style={{ background: SAGE }}
-            onMouseEnter={e => e.currentTarget.style.background = '#3e4c42'}
-            onMouseLeave={e => e.currentTarget.style.background = SAGE}
+            className="primary-btn flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-medium"
+            style={{
+              background: `linear-gradient(135deg, ${SAGE} 0%, #3e4c42 100%)`,
+              boxShadow: '0 4px 14px rgba(79,95,82,0.28)',
+            }}
           >
-            <Plus size={18} /> Add Ingredient
+            <Plus size={16} strokeWidth={2.2} />
+            Add Ingredient
           </button>
         </div>
 
-        {/* Ingredients Table */}
-        <div className="bg-white rounded-2xl border shadow-sm overflow-hidden" style={{ borderColor: CREAM }}>
+        {/* ── Divider ── */}
+        <div className="divider-line mb-7" />
+
+        {/* ── Table Card ── */}
+        <div
+          className="anim-up-delay rounded-2xl overflow-hidden"
+          style={{
+            background: '#fff',
+            border: '1.5px solid rgba(242,237,228,0.9)',
+            boxShadow: '0 4px 24px rgba(79,95,82,0.07)',
+          }}
+        >
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead style={{ background: CREAM }}>
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Unit</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Scale per Unit</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Current Stock</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide" style={{ color: SAGE }}>Actions</th>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+              <thead>
+                <tr style={{
+                  background: `linear-gradient(135deg, rgba(242,237,228,0.9), rgba(255,243,217,0.4))`,
+                  borderBottom: '1.5px solid rgba(242,237,228,1)',
+                }}>
+                  {['ID', 'Name', 'Unit', 'Scale / Unit', 'Current Stock', 'Status', 'Actions'].map((h, i) => (
+                    <th
+                      key={h}
+                      style={{
+                        padding: '14px 20px',
+                        textAlign: i === 6 ? 'right' : 'left',
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        color: SAGE,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y" style={{ borderColor: CREAM }}>
+              <tbody>
                 {ingredients.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="text-center py-12" style={{ color: MUTED_GRAY }}>
-                      <Package className="mx-auto h-12 w-12 mb-2" style={{ color: MUTED_GRAY }} />
-                      No ingredients found
+                    <td colSpan="7" style={{ textAlign: 'center', padding: '64px 24px' }}>
+                      <div style={{
+                        width: 64, height: 64,
+                        background: 'rgba(166,162,154,0.1)',
+                        borderRadius: 18,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        border: '1.5px dashed rgba(166,162,154,0.35)',
+                        margin: '0 auto 12px',
+                      }}>
+                        <Package size={28} style={{ color: MUTED_GRAY, opacity: 0.4 }} />
+                      </div>
+                      <p style={{ color: MUTED_GRAY, fontSize: '0.875rem' }}>No ingredients found.</p>
                     </td>
                   </tr>
                 ) : (
-                  ingredients.map(ing => (
-                    <tr key={ing.id} className="hover:bg-[#F2EDE4] transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap text-xs" style={{ color: MUTED_GRAY }}>#{ing.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap font-medium" style={{ color: SAGE }}>{ing.name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: MUTED_GRAY }}>{ing.unit}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: MUTED_GRAY }}>{ing.scale_per_uni || '—'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={ing.current_stock > 0 ? 'text-green-700 font-medium' : 'text-red-500'}>
+                  ingredients.map((ing, idx) => (
+                    <tr
+                      key={ing.id}
+                      className="table-row-hover"
+                      style={{
+                        borderBottom: idx < ingredients.length - 1 ? '1px solid rgba(242,237,228,0.8)' : 'none',
+                      }}
+                    >
+                      {/* ID */}
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
+                        <span style={{
+                          fontSize: '0.7rem', fontWeight: 700,
+                          color: MUTED_GRAY, letterSpacing: '0.05em',
+                          background: 'rgba(166,162,154,0.1)',
+                          padding: '2px 8px', borderRadius: 6,
+                        }}>
+                          #{ing.id}
+                        </span>
+                      </td>
+
+                      {/* Name */}
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{
+                            width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                            background: `linear-gradient(135deg, rgba(79,95,82,0.12), rgba(79,95,82,0.06))`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            border: '1px solid rgba(79,95,82,0.12)',
+                          }}>
+                            <Box size={13} style={{ color: SAGE }} />
+                          </div>
+                          <span style={{ color: SAGE, fontWeight: 600, fontSize: '0.875rem' }}>
+                            {ing.name}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Unit */}
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
+                        <span style={{
+                          fontSize: '0.75rem', fontWeight: 600,
+                          color: SAGE,
+                          background: 'rgba(79,95,82,0.07)',
+                          border: '1px solid rgba(79,95,82,0.12)',
+                          padding: '3px 10px', borderRadius: 8,
+                          letterSpacing: '0.03em',
+                        }}>
+                          {ing.unit}
+                        </span>
+                      </td>
+
+                      {/* Scale per unit */}
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap', color: MUTED_GRAY, fontSize: '0.8rem' }}>
+                        {ing.scale_per_uni || (
+                          <span style={{ opacity: 0.4 }}>—</span>
+                        )}
+                      </td>
+
+                      {/* Current stock */}
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
+                        <span
+                          className={ing.current_stock > 0 ? 'stock-pill-ok' : 'stock-pill-empty'}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                            padding: '3px 10px', borderRadius: 8,
+                            fontSize: '0.75rem', fontWeight: 700,
+                          }}
+                        >
+                          <span style={{
+                            width: 6, height: 6, borderRadius: '50%',
+                            background: ing.current_stock > 0 ? '#34d468' : '#ef4444',
+                            display: 'inline-block', flexShrink: 0,
+                          }} />
                           {ing.current_stock} {ing.unit}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap"><ActiveBadge isActive={ing.is_active} /></td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <button
-                          onClick={() => openEditModal(ing)}
-                          className="p-1.5 rounded-lg transition-colors hover:bg-sage/10 mr-2"
-                          style={{ color: SAGE }}
-                          title="Edit ingredient"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button
-                          onClick={() => deleteIngredient(ing.id, ing.name)}
-                          className="p-1.5 rounded-lg transition-colors hover:bg-red-50"
-                          style={{ color: '#EF4444' }}
-                          title="Delete ingredient"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+
+                      {/* Status */}
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '3px 10px', borderRadius: 999,
+                          fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.04em',
+                          background: ing.is_active
+                            ? `linear-gradient(135deg, ${SAGE}22, ${SAGE}10)`
+                            : 'rgba(166,162,154,0.12)',
+                          color: ing.is_active ? SAGE : MUTED_GRAY,
+                          border: `1.5px solid ${ing.is_active ? SAGE + '30' : 'rgba(166,162,154,0.25)'}`,
+                        }}>
+                          <span style={{
+                            width: 6, height: 6, borderRadius: '50%',
+                            background: ing.is_active ? '#34d468' : MUTED_GRAY,
+                            display: 'inline-block',
+                          }} />
+                          {ing.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                          <button
+                            onClick={() => openEditModal(ing)}
+                            className="action-btn"
+                            style={{
+                              padding: '7px',
+                              color: SAGE,
+                              background: 'rgba(79,95,82,0.08)',
+                            }}
+                            title="Edit ingredient"
+                          >
+                            <Edit2 size={14} strokeWidth={2} />
+                          </button>
+                          <button
+                            onClick={() => deleteIngredient(ing.id, ing.name)}
+                            className="action-btn"
+                            style={{
+                              padding: '7px',
+                              color: '#EF4444',
+                              background: 'rgba(239,68,68,0.07)',
+                            }}
+                            title="Delete ingredient"
+                          >
+                            <Trash2 size={14} strokeWidth={2} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -259,121 +427,181 @@ export default function Ingredients() {
         </div>
       </div>
 
-      {/* Add/Edit Modal - refined */}
+      {/* ══ Add/Edit Modal ══ */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl" style={{ animation: 'modalIn 0.2s ease' }}>
-            <div className="flex justify-between items-center p-5 border-b" style={{ borderColor: CREAM }}>
-              <h3 className="text-xl font-bold" style={{ color: SAGE }}>
-                {editMode ? 'Edit Ingredient' : 'Add Ingredient'}
-              </h3>
-              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-cream transition-colors" style={{ color: MUTED_GRAY }}>
-                <X size={20} />
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(30,35,30,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 50, padding: 16, backdropFilter: 'blur(4px)',
+        }}>
+          <div
+            className="anim-modal"
+            style={{
+              background: '#fff',
+              borderRadius: 22,
+              width: '100%', maxWidth: 460,
+              boxShadow: '0 24px 60px rgba(79,95,82,0.18), 0 4px 16px rgba(0,0,0,0.08)',
+              border: '1px solid rgba(242,237,228,0.8)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Modal header */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '20px 24px',
+              borderBottom: `1px solid ${CREAM}`,
+              background: `linear-gradient(135deg, rgba(79,95,82,0.04), rgba(255,243,217,0.3))`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 34, height: 34,
+                  background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                  borderRadius: 10,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 3px 10px rgba(79,95,82,0.25)',
+                }}>
+                  <Box size={16} color="#fff" />
+                </div>
+                <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.05rem', letterSpacing: '-0.01em' }}>
+                  {editMode ? 'Edit Ingredient' : 'New Ingredient'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                style={{
+                  color: MUTED_GRAY, padding: 7, borderRadius: 10,
+                  transition: 'all 0.15s', background: 'transparent', border: 'none', cursor: 'pointer',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = CREAM}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <X size={19} />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
+
+            <form onSubmit={handleSubmit} style={{ padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
               {formError && (
-                <div className="p-3 rounded-lg text-sm" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
-                  {formError}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '11px 14px', borderRadius: 12, fontSize: '0.82rem',
+                  background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2',
+                }}>
+                  <AlertCircle size={15} /> {formError}
                 </div>
               )}
+
+              {/* Name */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Name *</label>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Name *
+                </label>
                 <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  required
-                  className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20 ${fieldErrors.name ? 'border-red-500' : ''}`}
-                  style={{ borderColor: CREAM, color: SAGE }}
+                  type="text" name="name" value={formData.name}
+                  onChange={handleInputChange} required
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all"
+                  style={{
+                    borderColor: fieldErrors.name ? '#EF4444' : 'rgba(166,162,154,0.3)',
+                    color: SAGE, background: '#fafafa',
+                  }}
                 />
-                {fieldErrors.name && <p className="text-red-500 text-xs mt-1">{fieldErrors.name[0]}</p>}
+                {fieldErrors.name && <p style={{ color: '#EF4444', fontSize: '0.72rem', marginTop: 4 }}>{fieldErrors.name[0]}</p>}
               </div>
+
+              {/* Unit */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Unit *</label>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Unit *
+                </label>
                 <input
-                  type="text"
-                  name="unit"
-                  value={formData.unit}
-                  onChange={handleInputChange}
-                  required
+                  type="text" name="unit" value={formData.unit}
+                  onChange={handleInputChange} required
                   placeholder="e.g., kg, pcs, liters"
-                  className={`w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20 ${fieldErrors.unit ? 'border-red-500' : ''}`}
-                  style={{ borderColor: CREAM, color: SAGE }}
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all"
+                  style={{
+                    borderColor: fieldErrors.unit ? '#EF4444' : 'rgba(166,162,154,0.3)',
+                    color: SAGE, background: '#fafafa',
+                  }}
                 />
-                {fieldErrors.unit && <p className="text-red-500 text-xs mt-1">{fieldErrors.unit[0]}</p>}
+                {fieldErrors.unit && <p style={{ color: '#EF4444', fontSize: '0.72rem', marginTop: 4 }}>{fieldErrors.unit[0]}</p>}
               </div>
+
+              {/* Scale per unit */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Scale per Unit (optional)</label>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Scale per Unit <span style={{ color: MUTED_GRAY, fontWeight: 400, textTransform: 'none', fontSize: '0.68rem' }}>(optional)</span>
+                </label>
                 <input
-                  type="text"
-                  name="scale_per_uni"
-                  value={formData.scale_per_uni}
+                  type="text" name="scale_per_uni" value={formData.scale_per_uni}
                   onChange={handleInputChange}
                   placeholder="e.g., per bag, per box"
-                  className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20"
-                  style={{ borderColor: CREAM, color: SAGE }}
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
                 />
               </div>
+
+              {/* Current stock */}
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: SAGE }}>Current Stock</label>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Current Stock
+                </label>
                 <input
-                  type="number"
-                  step="0.01"
-                  name="current_stock"
+                  type="number" step="0.01" name="current_stock"
                   value={formData.current_stock}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-sage/20"
-                  style={{ borderColor: CREAM, color: SAGE }}
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
                 />
-                <p className="text-xs mt-1" style={{ color: MUTED_GRAY }}>Initial stock quantity. Can be adjusted later.</p>
+                <p style={{ color: MUTED_GRAY, fontSize: '0.7rem', marginTop: 5 }}>
+                  Initial quantity — adjustable later.
+                </p>
               </div>
-              <div className="flex items-center gap-2">
+
+              {/* Active checkbox */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                 <input
-                  type="checkbox"
-                  name="is_active"
+                  type="checkbox" name="is_active"
                   checked={formData.is_active}
                   onChange={handleInputChange}
                   id="is_active"
-                  className="w-4 h-4 rounded"
+                  className="checkbox-custom"
+                  style={{ width: 16, height: 16, borderRadius: 4 }}
                 />
-                <label htmlFor="is_active" className="text-sm" style={{ color: SAGE }}>Active (available for use)</label>
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t" style={{ borderColor: CREAM }}>
+                <span style={{ fontSize: '0.85rem', color: SAGE, fontWeight: 500 }}>
+                  Active <span style={{ color: MUTED_GRAY, fontWeight: 400 }}>(available for use)</span>
+                </span>
+              </label>
+
+              {/* Divider */}
+              <div className="divider-line" />
+
+              {/* Actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 rounded-xl border text-sm transition-colors"
-                  style={{ borderColor: CREAM, color: MUTED_GRAY }}
-                  onMouseEnter={e => e.currentTarget.style.background = CREAM}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: MUTED_GRAY, background: 'transparent' }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 rounded-xl text-white text-sm flex items-center gap-2 disabled:opacity-50 transition-colors"
-                  style={{ background: SAGE }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#3e4c42'}
-                  onMouseLeave={e => e.currentTarget.style.background = SAGE}
+                  className="primary-btn flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-50"
+                  style={{ background: `linear-gradient(135deg, ${SAGE}, #3e4c42)` }}
                 >
-                  {submitting && <Loader size={16} className="animate-spin" />}
-                  {submitting ? (editMode ? 'Updating...' : 'Creating...') : (editMode ? 'Update Ingredient' : 'Create Ingredient')}
+                  {submitting && <Loader size={15} className="animate-spin" />}
+                  {submitting
+                    ? (editMode ? 'Updating…' : 'Creating…')
+                    : (editMode ? 'Update Ingredient' : 'Create Ingredient')
+                  }
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes modalIn {
-          from { opacity: 0; transform: scale(0.95) translateY(10px); }
-          to { opacity: 1; transform: none; }
-        }
-      `}</style>
     </div>
   );
 }

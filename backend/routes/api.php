@@ -1,7 +1,16 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\AdminUserController;
+use App\Http\Controllers\AdminMenuController;
+use App\Http\Controllers\AdminCategoryController;
+use App\Http\Controllers\AdminIngredientController;
 use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\InventoryTransactionController;
+use App\Http\Controllers\AdminOrderController;
+use App\Http\Controllers\StaffOrderController;
+use App\Http\Controllers\StaffPaymentController;
+use App\Http\Controllers\DiscountController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -17,41 +26,116 @@ Route::post('/login', [AuthController::class, 'login']);
 
 // Protected routes (require valid token)
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/user', [AuthController::class, 'use']);
+    // FIXED: use() → user()
+    Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
 });
 
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
-    Route::get('/admin/users', [AuthController::class, 'getAllUsers']);
-    Route::post('/admin/users', [AuthController::class, 'adminCreateUser']);
-    Route::put('/admin/users/{id}', [AuthController::class, 'adminUpdateUser']); // <-- new
-    Route::delete('/admin/users/{id}', [AuthController::class, 'softDeleteUser']);
-    Route::patch('/admin/users/{id}/toggle-status', [AuthController::class, 'toggleUserStatus']);
 
-    // Categories
-    Route::post('/admin/menu', [AuthController::class, 'adminAddMenu']);
+    /*
+    |--------------------------------------------------------------------------
+    | USER MANAGEMENT (AdminUserController)
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/admin/users', [AdminUserController::class, 'getAllUsers']);
+    Route::get('/admin/staff', [AdminUserController::class, 'getStaffUsers']);
+    Route::post('/admin/users', [AdminUserController::class, 'adminCreateUser']);
+    Route::put('/admin/users/{id}', [AdminUserController::class, 'adminUpdateUser']);
+    Route::delete('/admin/users/{id}', [AdminUserController::class, 'softDeleteUser']);
+    Route::patch('/admin/users/{id}/toggle-status', [AdminUserController::class, 'toggleUserStatus']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | MENU MANAGEMENT (AdminMenuController)
+    |--------------------------------------------------------------------------
+    */
+    Route::post('/admin/menu', [AdminMenuController::class, 'adminAddMenu']);
+    Route::get('/admin/menu', [AdminMenuController::class, 'getAllMenu']); // keep main list
+    Route::delete('/admin/menu/{id}', [AdminMenuController::class, 'deleteMenu']);
+    Route::put('/admin/menu/{id}', [AdminMenuController::class, 'updateMenu']);
+
+    // OPTIONAL (if you still want separate simple list)
+    Route::get('/admin/menu-simple', [AdminMenuController::class, 'getMenu']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | INGREDIENTS (AdminIngredientController)
+    |--------------------------------------------------------------------------
+    */
+    Route::apiResource('ingredients', AdminIngredientController::class);
+    Route::post('/ingredients/{id}/adjust-stock', [AdminIngredientController::class, 'adjustStock']);
+    Route::get('/ingredients/{id}/transactions', [AdminIngredientController::class, 'transactions']);
 
 
-    
-    Route::post('/admin/users', [AuthController::class, 'adminCreateUser']);
-    Route::get('/admin/menu', [AuthController::class, 'getMenu']);
-    Route::delete('/admin/menu/{id}', [AuthController::class, 'deleteMenu']);
-    Route::get('/admin/menu', [AuthController::class, 'getAllMenu']);           // list all products
-    Route::delete('/admin/menu/{id}', [AuthController::class, 'deleteMenu']);   // delete a product
-    Route::put('/admin/menu/{id}', [AuthController::class, 'updateMenu']);
+    // Route::apiResource('ingredients', App\Http\Controllers\IngredientController::class);
+    // Route::post('/ingredients/{id}/adjust-stock', [App\Http\Controllers\IngredientController::class, 'adjustStock']);
+    // Route::get('/ingredients/{id}/transactions', [App\Http\Controllers\IngredientController::class, 'transactions']);
 
-    Route::apiResource('ingredients', App\Http\Controllers\IngredientController::class);
-    Route::post('/ingredients/{id}/adjust-stock', [App\Http\Controllers\IngredientController::class, 'adjustStock']);
-    Route::get('/ingredients/{id}/transactions', [App\Http\Controllers\IngredientController::class, 'transactions']);
-
-    
-        // Discounts (full CRUD)
+    /*
+    |--------------------------------------------------------------------------
+    | OTHER ADMIN FEATURES
+    |--------------------------------------------------------------------------
+    */
     Route::apiResource('discounts', App\Http\Controllers\DiscountController::class);
-    Route::get('/discounts/active', [DiscountController::class, 'active']); // optional
-    Route::apiResource('inventory-transactions', App\Http\Controllers\InventoryTransactionController::class);
+    Route::get('/discounts/active', [App\Http\Controllers\DiscountController::class, 'active']);
+    // Route::apiResource('inventory-transactions', App\Http\Controllers\InventoryTransactionController::class);
+
+        // GET CUSTOMER
+    Route::get('/admin/customers', [AdminUserController::class, 'getCustomers']);
+
+
+    // Inventory read-only
+    Route::get('/inventory/product-sales', [InventoryTransactionController::class, 'productSales']);
+    Route::get('/inventory/ingredient-transactions', [InventoryTransactionController::class, 'ingredientTransactions']);
+
+
+
+        // Admin Order Management
+    Route::get('/admin/orders', [AdminOrderController::class, 'index']);
+    Route::put('/admin/orders/{id}/schedule', [AdminOrderController::class, 'updateSchedule']);
 });
 
-Route::apiResource('categories', App\Http\Controllers\CategoryController::class);
+/*
+|--------------------------------------------------------------------------
+| PUBLIC / SHARED
+|--------------------------------------------------------------------------
+*/
+Route::apiResource('categories', CategoryController::class);
+
+// (OPTIONAL: if you still want this public)
+Route::get('/staff', [AdminUserController::class, 'getStaffUsers']);
+
+// Public menu list (for staff & guests)
+Route::get('/menu', function () {
+    $menu = \App\Models\Menu::where('is_active', true)->get();
+    return response()->json(['products' => $menu]);
+});
 
 
-Route::get('/staff', [AuthController::class, 'getStaffUsers']);
+/*
+|--------------------------------------------------------------------------
+| STAFF ROUTES
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'staff'])->prefix('staff')->group(function () {
+
+    Route::get('orders', [StaffOrderController::class, 'index']);
+    Route::get('orders/{id}', [StaffOrderController::class, 'show']);
+    Route::post('orders', [StaffOrderController::class, 'store']);          // create walk-in
+    Route::put('orders/{id}', [StaffOrderController::class, 'update']);     // edit pending
+    Route::post('orders/{id}/cancel', [StaffOrderController::class, 'cancel']); // cancel
+    Route::put('orders/{id}/status', [StaffOrderController::class, 'updateStatus']); // status progression
+    Route::post('payments', [StaffPaymentController::class, 'store']);
+
+        // Staff discount list (read‑only)
+    Route::get('discounts', [DiscountController::class, 'staffIndex']);
+
+    // Route::get('orders', [App\Http\Controllers\StaffOrderController::class, 'index']);
+    // Route::get('orders/{id}', [App\Http\Controllers\StaffOrderController::class, 'show']);
+    // Route::put('orders/{id}/status', [App\Http\Controllers\StaffOrderController::class, 'updateStatus']);
+    // Route::post('payments', [App\Http\Controllers\StaffPaymentController::class, 'store']);
+    // Route::post('orders', [App\Http\Controllers\StaffOrderController::class, 'store']);
+    // Route::put('orders/{id}', [App\Http\Controllers\StaffOrderController::class, 'update']);
+    // Route::post('orders/{id}/cancel', [App\Http\Controllers\StaffOrderController::class, 'cancel']);
+});

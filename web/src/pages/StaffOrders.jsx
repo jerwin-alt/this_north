@@ -1,0 +1,698 @@
+// src/pages/StaffOrders.jsx
+import React, { useState, useEffect } from 'react';
+import axios from '/api/axios';
+import {
+  Loader, AlertCircle, Search, ShoppingBag, Plus, Edit2, X, Check, Clock, Calendar,
+  Ban, Play, AlertTriangle, Package, Trash2, ChevronDown
+} from 'lucide-react';
+
+const SAGE = '#4F5F52';
+const CREAM = '#F2EDE4';
+const MUTED_GRAY = '#A6A29A';
+const SOFT_WHITE = '#FFF3D9';
+
+const statusColors = {
+  pending: '#D4A03D',
+  confirmed: '#5B7A8A',
+  preparing: '#7A5B8A',
+  ready: '#5B8A5E',
+  completed: '#4F5F52',
+  cancelled: '#C75B5B',
+};
+const statusBg = {
+  pending: 'rgba(212,160,61,0.1)',
+  confirmed: 'rgba(91,122,138,0.1)',
+  preparing: 'rgba(122,91,138,0.1)',
+  ready: 'rgba(91,138,94,0.1)',
+  completed: 'rgba(79,95,82,0.1)',
+  cancelled: 'rgba(199,91,91,0.1)',
+};
+
+export default function StaffOrders() {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+
+  // Menu list for items
+  const [menuItems, setMenuItems] = useState([]);
+
+  // Modal states
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(null); // order to cancel
+
+  // Form data
+  const [createForm, setCreateForm] = useState({
+    customer_name: '',
+    customer_phone: '',
+    pickup_date: '',
+    pickup_time: '',
+    notes: '',
+    items: [{ menu_id: '', quantity: 1 }],
+  });
+  const [editForm, setEditForm] = useState({
+    customer_name: '',
+    customer_phone: '',
+    pickup_date: '',
+    pickup_time: '',
+    notes: '',
+    items: [],
+  });
+
+  const [submitting, setSubmitting] = useState(false);
+
+  // Fetch orders
+  const fetchOrders = async () => {
+    setLoading(true);
+    try {
+      const params = {};
+      if (statusFilter) params.status = statusFilter;
+      if (search) params.search = search;
+      const res = await axios.get('/staff/orders', { params });
+      setOrders(res.data.orders?.data || res.data.orders || []);
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || 'Failed to load orders');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch menu for item selection
+const fetchMenu = async () => {
+    try {
+        const res = await axios.get('/menu'); // was /admin/menu
+        setMenuItems(res.data.products || res.data.menu || []);
+    } catch (err) { console.error(err); }
+};
+
+  useEffect(() => { fetchOrders(); fetchMenu(); }, [statusFilter, search]);
+
+  // --- Create Order Handlers ---
+  const addItemToCreate = () => setCreateForm(prev => ({
+    ...prev, items: [...prev.items, { menu_id: '', quantity: 1 }]
+  }));
+  const removeItemFromCreate = (idx) => {
+    if (createForm.items.length <= 1) return;
+    setCreateForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }));
+  };
+  const updateItemCreate = (idx, field, value) => {
+    const items = [...createForm.items];
+    items[idx][field] = value;
+    setCreateForm(prev => ({ ...prev, items }));
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      await axios.post('/staff/orders', createForm);
+      setShowCreateModal(false);
+      setCreateForm({
+        customer_name: '',
+        customer_phone: '',
+        pickup_date: '',
+        pickup_time: '',
+        notes: '',
+        items: [{ menu_id: '', quantity: 1 }],
+      });
+      fetchOrders();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to create order');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // --- Edit Order Handlers ---
+  const openEditModal = (order) => {
+    setEditingOrder(order);
+    setEditForm({
+      customer_name: order.customer_name,
+      customer_phone: order.customer_phone || '',
+      pickup_date: order.pickup_date || '',
+      pickup_time: order.pickup_time ? order.pickup_time.slice(0, 5) : '',
+      notes: order.notes || '',
+      items: (order.items || []).map(i => ({ menu_id: i.menu_id, quantity: i.quantity })),
+    });
+    setShowEditModal(true);
+  };
+
+  const addItemToEdit = () => setEditForm(prev => ({
+    ...prev, items: [...prev.items, { menu_id: '', quantity: 1 }]
+  }));
+  const removeItemFromEdit = (idx) => {
+    if (editForm.items.length <= 1) return;
+    setEditForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }));
+  };
+  const updateItemEdit = (idx, field, value) => {
+    const items = [...editForm.items];
+    items[idx][field] = value;
+    setEditForm(prev => ({ ...prev, items }));
+  };
+
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      await axios.put(`/staff/orders/${editingOrder.id}`, editForm);
+      setShowEditModal(false);
+      setEditingOrder(null);
+      fetchOrders();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to update order');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // --- Cancel Order ---
+  const handleCancel = async () => {
+    if (!confirmCancel) return;
+    setSubmitting(true);
+    try {
+      await axios.post(`/staff/orders/${confirmCancel.id}/cancel`);
+      setConfirmCancel(null);
+      fetchOrders();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Cancel failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // --- Status Transitions ---
+  const nextStatuses = (order) => {
+    const transitions = {
+      pending: { confirmed: 'Confirm', cancelled: 'Cancel' },
+      confirmed: { preparing: 'Start Preparing', cancelled: 'Cancel' },
+      preparing: { ready: 'Mark Ready', cancelled: 'Cancel' },
+      ready: { completed: 'Complete' },
+      completed: {},
+      cancelled: {},
+    };
+    return transitions[order.status] || {};
+  };
+
+  const handleStatusChange = async (orderId, newStatus) => {
+    try {
+      await axios.put(`/staff/orders/${orderId}/status`, { status: newStatus });
+      fetchOrders();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Status update failed');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ background: CREAM, minHeight: '100vh' }} className="flex justify-center items-center h-64">
+        <div className="flex flex-col items-center gap-3">
+          <Loader className="animate-spin" style={{ color: SAGE }} size={36} />
+          <p style={{ color: MUTED_GRAY, fontSize: '0.85rem' }}>Loading orders...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 rounded-2xl flex items-center gap-3 m-6" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
+        <AlertCircle size={20} />
+        <span>{error}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: CREAM, minHeight: '100vh', padding: '36px 28px' }}>
+      <style>{`
+        .grain-overlay {
+          position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0.028;
+          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+          background-repeat: repeat; background-size: 128px;
+        }
+        .divider-line { height: 1px; background: linear-gradient(90deg, transparent, rgba(79,95,82,0.15), transparent); }
+        .order-row { transition: background 0.15s ease; }
+        .order-row:hover { background: rgba(242,237,228,0.7) !important; }
+        .action-btn { transition: all 0.18s ease; border-radius: 10px; border: none; cursor: pointer; }
+        .action-btn:hover { transform: scale(1.12); }
+        .primary-btn { position: relative; overflow: hidden; transition: all 0.22s cubic-bezier(0.4,0,0.2,1); border: none; cursor: pointer; }
+        .primary-btn::before { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.1); opacity: 0; transition: opacity 0.2s; }
+        .primary-btn:hover::before { opacity: 1; }
+        .primary-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(79,95,82,0.3); }
+        .primary-btn:active { transform: translateY(0); }
+        .sec-btn { transition: all 0.2s ease; cursor: pointer; }
+        .sec-btn:hover { background: rgba(79,95,82,0.07) !important; transform: translateY(-1px); }
+        .modal-input:focus { box-shadow: 0 0 0 3px rgba(79,95,82,0.12); border-color: #4F5F52 !important; outline: none; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+        .fade-in { animation: fadeInUp 0.4s ease both; }
+        .fade-in-1 { animation: fadeInUp 0.4s 0.05s ease both; }
+        @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(12px); } to { opacity: 1; transform: none; } }
+        .anim-modal { animation: modalIn 0.25s cubic-bezier(0.25,0.46,0.45,0.94); }
+      `}</style>
+
+      <div className="grain-overlay" />
+
+      <div className="max-w-7xl mx-auto relative" style={{ zIndex: 1 }}>
+        {/* Header */}
+        <div className="flex flex-wrap justify-between items-start gap-4 mb-8 fade-in">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <div style={{
+                width: 36, height: 36,
+                background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                borderRadius: 10,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(79,95,82,0.25)',
+                flexShrink: 0,
+              }}>
+                <ShoppingBag size={18} color="#fff" />
+              </div>
+              <h1 style={{ color: SAGE, fontSize: '1.55rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Order Management</h1>
+            </div>
+            <p style={{ color: MUTED_GRAY, fontSize: '0.82rem', letterSpacing: '0.03em', marginLeft: 48 }}>Create and process customer orders</p>
+          </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="primary-btn flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-medium"
+            style={{
+              background: `linear-gradient(135deg, ${SAGE} 0%, #3e4c42 100%)`,
+              boxShadow: '0 4px 14px rgba(79,95,82,0.28)',
+            }}
+          >
+            <Plus size={16} strokeWidth={2.2} />
+            New Walk‑in Order
+          </button>
+        </div>
+
+        <div className="divider-line mb-7" />
+
+        {/* Filters */}
+        <div className="fade-in-1 flex flex-wrap gap-4 mb-8">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: MUTED_GRAY }} />
+            <input
+              type="text"
+              placeholder="Search order # or customer name…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="modal-input w-full pl-10 pr-4 py-2.5 rounded-xl border bg-white text-sm"
+              style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE }}
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="modal-input px-4 py-2.5 rounded-xl border bg-white text-sm"
+            style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE }}
+          >
+            <option value="">All Status</option>
+            {Object.keys(statusColors).map((s) => (
+              <option key={s} value={s} className="capitalize">{s}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Orders Table */}
+        <div className="fade-in-1" style={{
+          background: '#fff',
+          borderRadius: 20,
+          border: '1.5px solid rgba(242,237,228,0.9)',
+          boxShadow: '0 2px 12px rgba(79,95,82,0.06)',
+          overflow: 'hidden',
+        }}>
+          <div className="overflow-x-auto">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+              <thead>
+                <tr style={{
+                  background: `linear-gradient(135deg, ${CREAM}, rgba(255,243,217,0.5))`,
+                  borderBottom: `1.5px solid ${CREAM}`,
+                }}>
+                  {['Order #', 'Customer', 'Date', 'Pickup', 'Total', 'Status', 'Items', 'Actions'].map(col => (
+                    <th key={col} style={{
+                      padding: '13px 20px', textAlign: 'left',
+                      fontSize: '0.68rem', fontWeight: 700, color: SAGE,
+                      letterSpacing: '0.08em', textTransform: 'uppercase',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orders.length === 0 ? (
+                  <tr>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '48px 20px', color: MUTED_GRAY }}>
+                      <div style={{
+                        width: 56, height: 56,
+                        background: 'rgba(166,162,154,0.1)',
+                        borderRadius: 16,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        margin: '0 auto 12px',
+                        border: '1.5px dashed rgba(166,162,154,0.3)',
+                      }}>
+                        <ShoppingBag size={24} style={{ color: MUTED_GRAY, opacity: 0.4 }} />
+                      </div>
+                      <p style={{ fontSize: '0.85rem' }}>No orders found</p>
+                    </td>
+                  </tr>
+                ) : (
+                  orders.map((order, idx) => (
+                    <tr
+                      key={order.id}
+                      className="order-row"
+                      style={{ borderTop: idx === 0 ? 'none' : `1px solid rgba(242,237,228,0.8)` }}
+                    >
+                      <td style={{ padding: '13px 20px', fontWeight: 700, color: SAGE, whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
+                        {order.order_number}
+                      </td>
+                      <td style={{ padding: '13px 20px' }}>
+                        <p style={{ fontWeight: 600, color: SAGE, margin: 0 }}>{order.customer_name}</p>
+                        {order.customer_phone && (
+                          <p style={{ fontSize: '0.72rem', color: MUTED_GRAY, margin: 0 }}>{order.customer_phone}</p>
+                        )}
+                      </td>
+                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                        {new Date(order.order_date).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })}
+                      </td>
+                      <td style={{ padding: '13px 20px', whiteSpace: 'nowrap' }}>
+                        {order.pickup_date ? (
+                          <div>
+                            <span style={{ color: SAGE, fontWeight: 600 }}>{order.pickup_date}</span>
+                            {order.pickup_time && <span style={{ color: MUTED_GRAY, marginLeft: 4 }}>{order.pickup_time.slice(0, 5)}</span>}
+                          </div>
+                        ) : (
+                          <span style={{ color: MUTED_GRAY, fontSize: '0.78rem' }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '13px 20px', fontWeight: 700, color: SAGE, whiteSpace: 'nowrap' }}>
+                        ₱{parseFloat(order.total_amount).toLocaleString()}
+                      </td>
+                      <td style={{ padding: '13px 20px' }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '3px 10px', borderRadius: 999,
+                          fontSize: '0.68rem', fontWeight: 600,
+                          background: statusBg[order.status] || 'rgba(166,162,154,0.1)',
+                          color: statusColors[order.status] || MUTED_GRAY,
+                          border: `1px solid ${statusColors[order.status]}33`,
+                          textTransform: 'capitalize',
+                        }}>
+                          <span style={{
+                            width: 5, height: 5, borderRadius: '50%',
+                            background: statusColors[order.status] || MUTED_GRAY,
+                            display: 'inline-block',
+                          }} />
+                          {order.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '13px 20px' }}>
+                        <div className="flex flex-wrap gap-1">
+                          {order.items?.map(item => (
+                            <span key={item.id} style={{
+                              display: 'inline-block',
+                              background: 'rgba(79,95,82,0.07)',
+                              color: SAGE,
+                              borderRadius: 5,
+                              padding: '2px 6px',
+                              fontSize: '0.72rem',
+                              marginBottom: 2,
+                            }}>
+                              {item.menu?.name} ×{item.quantity}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td style={{ padding: '13px 20px' }}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* Edit only if pending */}
+                          {order.status === 'pending' && (
+                            <button
+                              onClick={() => openEditModal(order)}
+                              className="action-btn p-1.5 rounded-lg"
+                              style={{ color: SAGE, background: 'rgba(79,95,82,0.08)' }}
+                              title="Edit order"
+                            >
+                              <Edit2 size={14} strokeWidth={2} />
+                            </button>
+                          )}
+                          {/* Status progression buttons */}
+                          {Object.entries(nextStatuses(order)).map(([newStatus, label]) => (
+                            <button
+                              key={newStatus}
+                              onClick={() => newStatus === 'cancelled' ? setConfirmCancel(order) : handleStatusChange(order.id, newStatus)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-medium"
+                              style={{
+                                background: statusBg[newStatus] || 'rgba(79,95,82,0.07)',
+                                color: statusColors[newStatus] || SAGE,
+                                border: `1px solid ${statusColors[newStatus]}33`,
+                              }}
+                            >
+                              {newStatus === 'cancelled' ? <Ban size={12} className="mr-1 inline" /> : <Play size={12} className="mr-1 inline" />}
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Create Order Modal */}
+      {showCreateModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 50, padding: 16, backdropFilter: 'blur(4px)',
+        }}>
+          <div className="anim-modal" style={{
+            background: '#fff', borderRadius: 22, width: '100%', maxWidth: 600,
+            maxHeight: '90vh', overflowY: 'auto',
+            boxShadow: '0 24px 60px rgba(79,95,82,0.18), 0 4px 16px rgba(0,0,0,0.08)',
+            border: '1px solid rgba(242,237,228,0.8)',
+          }}>
+            <div style={{
+              position: 'sticky', top: 0, zIndex: 10,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '20px 24px',
+              borderBottom: `1px solid ${CREAM}`,
+              background: `linear-gradient(135deg, rgba(79,95,82,0.04), rgba(255,243,217,0.3))`,
+              backdropFilter: 'blur(8px)',
+            }}>
+              <div className="flex items-center gap-3">
+                <div style={{
+                  width: 32, height: 32,
+                  background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                  borderRadius: 9,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 3px 10px rgba(79,95,82,0.25)',
+                }}>
+                  <Plus size={15} color="#fff" />
+                </div>
+                <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.05rem' }}>New Walk‑in Order</h3>
+              </div>
+              <button onClick={() => setShowCreateModal(false)} className="hover:bg-cream/50 p-1.5 rounded-lg" style={{ color: MUTED_GRAY }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreate} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Customer Name *</label>
+                  <input type="text" value={createForm.customer_name} onChange={e => setCreateForm({...createForm, customer_name: e.target.value})} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Phone (optional)</label>
+                  <input type="text" value={createForm.customer_phone} onChange={e => setCreateForm({...createForm, customer_phone: e.target.value})} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Pickup Date</label>
+                  <input type="date" value={createForm.pickup_date} onChange={e => setCreateForm({...createForm, pickup_date: e.target.value})} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Pickup Time</label>
+                  <input type="time" value={createForm.pickup_time} onChange={e => setCreateForm({...createForm, pickup_time: e.target.value})} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Notes</label>
+                  <textarea value={createForm.notes} onChange={e => setCreateForm({...createForm, notes: e.target.value})} rows={2} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm resize-none" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold" style={{ color: SAGE }}>Items *</span>
+                  <button type="button" onClick={addItemToCreate} className="text-xs flex items-center gap-1 px-3 py-1 rounded-lg" style={{ color: SAGE, background: 'rgba(79,95,82,0.08)' }}>
+                    <Plus size={12} /> Add Item
+                  </button>
+                </div>
+                {createForm.items.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-3 mb-2">
+                    <select value={item.menu_id} onChange={e => updateItemCreate(idx, 'menu_id', e.target.value)} required className="flex-1 modal-input px-3 py-2 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }}>
+                      <option value="">Select product</option>
+                      {menuItems.filter(m => m.is_active).map(m => (
+                        <option key={m.id} value={m.id}>{m.name} — ₱{parseFloat(m.base_price).toLocaleString()}</option>
+                      ))}
+                    </select>
+                    <input type="number" min="1" value={item.quantity} onChange={e => updateItemCreate(idx, 'quantity', e.target.value)} required className="w-20 modal-input px-3 py-2 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                    <button type="button" onClick={() => removeItemFromCreate(idx)} className="p-1.5 rounded-lg" style={{ color: '#EF4444' }}><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="divider-line" />
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={() => setShowCreateModal(false)} className="sec-btn px-5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:MUTED_GRAY }}>Cancel</button>
+                <button type="submit" disabled={submitting} className="primary-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm disabled:opacity-50" style={{ background:`linear-gradient(135deg, ${SAGE}, #3e4c42)` }}>
+                  {submitting ? <Loader size={15} className="animate-spin" /> : <Check size={16} />}
+                  {submitting ? 'Creating…' : 'Create Order'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Order Modal – similar to create, pre-filled */}
+      {showEditModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 50, padding: 16, backdropFilter: 'blur(4px)',
+        }}>
+          <div className="anim-modal" style={{
+            background: '#fff', borderRadius: 22, width: '100%', maxWidth: 600,
+            maxHeight: '90vh', overflowY: 'auto',
+            boxShadow: '0 24px 60px rgba(79,95,82,0.18), 0 4px 16px rgba(0,0,0,0.08)',
+            border: '1px solid rgba(242,237,228,0.8)',
+          }}>
+            <div style={{
+              position: 'sticky', top: 0, zIndex: 10,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '20px 24px',
+              borderBottom: `1px solid ${CREAM}`,
+              background: `linear-gradient(135deg, rgba(79,95,82,0.04), rgba(255,243,217,0.3))`,
+              backdropFilter: 'blur(8px)',
+            }}>
+              <div className="flex items-center gap-3">
+                <div style={{
+                  width: 32, height: 32,
+                  background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                  borderRadius: 9,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 3px 10px rgba(79,95,82,0.25)',
+                }}>
+                  <Edit2 size={14} color="#fff" />
+                </div>
+                <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.05rem' }}>Edit Order</h3>
+              </div>
+              <button onClick={() => setShowEditModal(false)} className="hover:bg-cream/50 p-1.5 rounded-lg" style={{ color: MUTED_GRAY }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleEdit} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Customer Name *</label>
+                  <input type="text" value={editForm.customer_name} onChange={e => setEditForm({...editForm, customer_name: e.target.value})} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Phone (optional)</label>
+                  <input type="text" value={editForm.customer_phone} onChange={e => setEditForm({...editForm, customer_phone: e.target.value})} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Pickup Date</label>
+                  <input type="date" value={editForm.pickup_date} onChange={e => setEditForm({...editForm, pickup_date: e.target.value})} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Pickup Time</label>
+                  <input type="time" value={editForm.pickup_time} onChange={e => setEditForm({...editForm, pickup_time: e.target.value})} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Notes</label>
+                  <textarea value={editForm.notes} onChange={e => setEditForm({...editForm, notes: e.target.value})} rows={2} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm resize-none" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold" style={{ color: SAGE }}>Items *</span>
+                  <button type="button" onClick={addItemToEdit} className="text-xs flex items-center gap-1 px-3 py-1 rounded-lg" style={{ color: SAGE, background: 'rgba(79,95,82,0.08)' }}>
+                    <Plus size={12} /> Add Item
+                  </button>
+                </div>
+                {editForm.items.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-3 mb-2">
+                    <select value={item.menu_id} onChange={e => updateItemEdit(idx, 'menu_id', e.target.value)} required className="flex-1 modal-input px-3 py-2 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }}>
+                      <option value="">Select product</option>
+                      {menuItems.filter(m => m.is_active).map(m => (
+                        <option key={m.id} value={m.id}>{m.name} — ₱{parseFloat(m.base_price).toLocaleString()}</option>
+                      ))}
+                    </select>
+                    <input type="number" min="1" value={item.quantity} onChange={e => updateItemEdit(idx, 'quantity', e.target.value)} required className="w-20 modal-input px-3 py-2 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                    <button type="button" onClick={() => removeItemFromEdit(idx)} className="p-1.5 rounded-lg" style={{ color: '#EF4444' }}><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="divider-line" />
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={() => setShowEditModal(false)} className="sec-btn px-5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:MUTED_GRAY }}>Cancel</button>
+                <button type="submit" disabled={submitting} className="primary-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm disabled:opacity-50" style={{ background:`linear-gradient(135deg, ${SAGE}, #3e4c42)` }}>
+                  {submitting ? <Loader size={15} className="animate-spin" /> : <Check size={16} />}
+                  {submitting ? 'Updating…' : 'Update Order'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Confirmation Modal */}
+      {confirmCancel && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 50, padding: 16, backdropFilter: 'blur(4px)',
+        }}>
+          <div className="anim-modal" style={{
+            background: '#fff', borderRadius: 22, padding: '32px 28px', maxWidth: 380, width: '100%', textAlign: 'center',
+            boxShadow: '0 24px 60px rgba(79,95,82,0.18), 0 4px 16px rgba(0,0,0,0.08)',
+            border: '1px solid rgba(242,237,228,0.8)',
+          }}>
+            <div style={{
+              width: 56, height: 56, background: 'rgba(199,91,91,0.1)', borderRadius: 16,
+              margin: '0 auto 18px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '1px solid rgba(199,91,91,0.2)',
+            }}>
+              <AlertTriangle size={28} style={{ color: '#C75B5B' }} />
+            </div>
+            <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.1rem', marginBottom: 8 }}>Cancel Order?</h3>
+            <p style={{ color: MUTED_GRAY, fontSize: '0.83rem', marginBottom: 24 }}>
+              This will cancel order <strong style={{ color: SAGE }}>{confirmCancel.order_number}</strong>.
+              This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button onClick={() => setConfirmCancel(null)} className="sec-btn px-5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:MUTED_GRAY }}>Keep Order</button>
+              <button onClick={handleCancel} disabled={submitting} className="primary-btn px-5 py-2.5 rounded-xl text-white text-sm" style={{ background: 'linear-gradient(135deg, #C75B5B, #a14747)', boxShadow: '0 4px 14px rgba(199,91,91,0.25)' }}>
+                {submitting ? <Loader size={15} className="animate-spin" /> : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

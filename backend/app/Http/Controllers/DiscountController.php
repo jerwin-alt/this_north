@@ -122,4 +122,21 @@ class DiscountController extends Controller
             'message' => 'Discount deleted successfully'
         ]);
     }
+
+
+
+
+        public function staffIndex()
+    {
+        // Return all discounts – you can uncomment the where clause to show only active ones.
+        $discounts = Discount::orderBy('is_active', 'desc')
+                            ->orderBy('discount_name')
+                            // ->where('is_active', true)
+                            ->get();
+
+        return response()->json([
+            'discounts' => $discounts,
+            'message'   => 'Discounts retrieved successfully'
+        ]);
+    }
 }
