@@ -11,31 +11,36 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-// Public routes (no authentication required)
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
-
-// Protected routes (require valid token)
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/user', [AuthController::class, 'use']);
-    Route::post('/logout', [AuthController::class, 'logout']);
-});
-
-Route::middleware(['auth:sanctum', 'admin'])->group(function () {
-    Route::get('/admin/users', [AuthController::class, 'getAllUsers']);
-    Route::post('/admin/users', [AuthController::class, 'adminCreateUser']);
-    Route::put('/admin/users/{id}', [AuthController::class, 'adminUpdateUser']); // <-- new
-    // Categories
-   Route::middleware(['auth:sanctum', 'admin'])->post('/admin/menu', [AuthController::class, 'adminAddMenu']);
+Route::middleware('guest')->group(function () {
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login', [AuthController::class, 'login']);
     
 });
 
+// =======================
+// AUTHENTICATED USERS
+// =======================
+Route::middleware('auth:sanctum')->group(function () {
 
+    Route::get('/user', [AuthController::class, 'user']);
 
- Route::apiResource('categories', App\Http\Controllers\CategoryController::class);
+    // PUBLIC / CUSTOMER
+    Route::middleware(['auth:sanctum', 'role:customer'])->group(function () {
+        Route::get('/menu', [MenuController::class, 'index']);
+        Route::get('/menu/{id}', [MenuController::class, 'show']);
+        });
 
+    // STAFF (Web)
+    Route::middleware('role:staff')->group(function () {
+        Route::get('/staff/orders', [OrderController::class, 'index']);
+        Route::put('/staff/orders/{id}', [OrderController::class, 'update']);
+    });
 
-
-Route::middleware(['auth:sanctum', 'admin'])->post('/admin/users', [AuthController::class, 'adminCreateUser']);
-
-Route::get('/staff', [AuthController::class, 'getStaffUsers']);
+    // ADMIN (Web)
+    // ADMIN ONLY
+Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+    Route::post('/admin/menu', [MenuController::class, 'store']);
+    Route::put('/admin/menu/{id}', [MenuController::class, 'update']);
+    Route::delete('/admin/menu/{id}', [MenuController::class, 'destroy']);
+});
+});

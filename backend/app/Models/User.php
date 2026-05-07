@@ -29,7 +29,7 @@ class User extends Authenticatable
         'verification_type',
         'verification_status',
         'id_number',
-        'expires_at',
+        'image',
         'is_active',
         'is_walk_in_customer',
         'signature_stamps'

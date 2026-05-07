@@ -24,7 +24,7 @@ class AuthController extends Controller
 
 
     //FUNCTION ANI IS PARA MAKUHA NIYA ANG DATA NI USER (EX. NAME, ADDRESS, EMAIL, ETC.)
-    public function use (Request $request)
+    public function user(Request $request)
     {
         return $request->user();
     }
@@ -33,45 +33,59 @@ class AuthController extends Controller
     //PAG REGISTER SA ACCOUNT
     public function register(Request $request)
     {
-        //VALIDATE SA UNA AYHA NIYA I PASA SA DATABASE ANG DATA
-        $request->validate([
-            'role' => ['required', 'string'],
-            'first_name' => ['required', 'string'],
-            'last_name' => ['required', 'string'],
-            'email' => ['required', 'string', 'email', 'unique:users,email'],
-            'password' => ['required', 'confirmed', Password::defaults()],
-            'phone' => ['required', 'numeric'],
-            'birth_date' => ['required', 'date', 'date_format:Y-m-d'],
-            'address' => ['required', 'string'],
-            'verification_type' => ['required', 'string'],
-            'verification_status' => ['required', 'string'],
-            'id_number' => ['required', 'string'],
-            'expires_at' => ['required', 'date', 'date_format:Y-m-d']
-        ]);
+        try {
+            $request->validate([
+                'first_name' => ['required', 'string'],
+                'last_name' => ['required', 'string'],
+                'email' => ['required', 'email', 'unique:users,email'],
+                'password' => ['required', 'confirmed'],
+                'phone' => ['required', 'string'],
+                'birth_date' => ['required', 'date_format:Y-m-d'],
+                'address' => ['required', 'string'],
+                'id_number' => ['nullable', 'string'],
+                'verification_type' => ['nullable', 'in:senior_citizen,pwd'],
+                'image' => ['nullable', 'image', 'max:5120'],
+            ]);
 
-        //PAG CREATE OG DATA OG PAGLABAY NIYA SA DATABASE
-        User::create([
-            'role' => $request->role,
-            'first_name' => $request->first_name,
-            'last_name' => $request->last_name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'phone' => $request->phone,
-            'birth_date' => $request->birth_date,
-            'address' => $request->address,
-            'verification_type' => $request->verification_type,
-            'verification_status' => $request->verification_status,
-            'id_number' => $request->id_number,
-            'expires_at' => $request->expires_at
-        ]);
+            $imagePath = null;
 
-        //RESPONSE MESSAGE ONCE SUCCESSFUL ANG PAG REGISTER 
-        return response()->json([
-            'message' => 'User Registered Successfully'
-        ], 200);
+            if ($request->hasFile('image') && $request->file('image')->isValid()) {
+                $imagePath = $request->file('image')->store('uploads/ids', 'public');
+            }
+
+            $user = User::create([
+                'role' => 'customer',
+                'first_name' => $request->first_name,
+                'last_name' => $request->last_name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
+                'phone' => $request->phone,
+                'birth_date' => $request->birth_date,
+                'address' => $request->address,
+                'id_number' => $request->id_number,
+                'verification_type' => $request->verification_type,
+                'verification_status' => 'pending',
+                'image' => $imagePath,
+            ]);
+
+            $token = $user->createToken('token')->plainTextToken;
+
+            return response()->json([
+                'token' => $token,
+                'user' => $user,
+                'message' => 'Registration successful'
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::error('REGISTER ERROR: ' . $e->getMessage());
+
+            return response()->json([
+                'message' => 'Server Error',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
-    
 
     // Get all staff users
     public function getStaffUsers()
@@ -111,12 +125,11 @@ class AuthController extends Controller
                 'email' => ['required', 'string', 'email', 'unique:users,email'],
                 'password' => ['required', 'confirmed', Password::defaults()],
                 'phone' => ['required', 'numeric'],
-                'birth_date' => ['required', 'date', 'date_format:Y-m-d'],
+                'birth_date' => ['required', 'date', 'date_format:YYYY-MM-dd'],
                 'address' => ['required', 'string'],
                 'verification_type' => ['required', 'string'],
                 'verification_status' => ['required', 'string'],
                 'id_number' => ['required', 'string'],
-                'expires_at' => ['required', 'date', 'date_format:Y-m-d']
             ]);
 
             $user = User::create([
@@ -131,7 +144,6 @@ class AuthController extends Controller
                 'verification_type' => $request->verification_type,
                 'verification_status' => $request->verification_status,
                 'id_number' => $request->id_number,
-                'expires_at' => $request->expires_at,
             ]);
 
             return response()->json([
@@ -152,48 +164,48 @@ class AuthController extends Controller
 
 
     // Admin-only: update an existing user
-public function adminUpdateUser(Request $request, $id)
-{
-    $user = User::findOrFail($id);
+    public function adminUpdateUser(Request $request, $id)
+    {
+        $user = User::findOrFail($id);
 
-    $request->validate([
-        'role' => ['required', 'string', 'in:admin,staff'],
-        'first_name' => ['required', 'string'],
-        'last_name' => ['required', 'string'],
-        'email' => ['required', 'string', 'email', 'unique:users,email,' . $id],
-        'phone' => ['required', 'numeric'],
-        'birth_date' => ['required', 'date', 'date_format:Y-m-d'],
-        'address' => ['required', 'string'],
-        // optional: if you want to allow password update
-        'password' => ['nullable', 'confirmed', Password::defaults()],
-    ]);
+        $request->validate([
+            'role' => ['required', 'string', 'in:admin,staff'],
+            'first_name' => ['required', 'string'],
+            'last_name' => ['required', 'string'],
+            'email' => ['required', 'string', 'email', 'unique:users,email,' . $id],
+            'phone' => ['required', 'numeric'],
+            'birth_date' => ['required', 'date', 'date_format:Y-m-d'],
+            'address' => ['required', 'string'],
+            // optional: if you want to allow password update
+            'password' => ['nullable', 'confirmed', Password::defaults()],
+        ]);
 
-    $updateData = [
-        'role' => $request->role,
-        'first_name' => $request->first_name,
-        'last_name' => $request->last_name,
-        'email' => $request->email,
-        'phone' => $request->phone,
-        'birth_date' => $request->birth_date,
-        'address' => $request->address,
-    ];
+        $updateData = [
+            'role' => $request->role,
+            'first_name' => $request->first_name,
+            'last_name' => $request->last_name,
+            'email' => $request->email,
+            'phone' => $request->phone,
+            'birth_date' => $request->birth_date,
+            'address' => $request->address,
+        ];
 
-    // Update password only if provided
-    if ($request->filled('password')) {
-        $updateData['password'] = Hash::make($request->password);
+        // Update password only if provided
+        if ($request->filled('password')) {
+            $updateData['password'] = Hash::make($request->password);
+        }
+
+        $user->update($updateData);
+
+        return response()->json([
+            'message' => 'User updated successfully',
+            'user' => $user
+        ], 200);
     }
 
-    $user->update($updateData);
-
-    return response()->json([
-        'message' => 'User updated successfully',
-        'user' => $user
-    ], 200);
-}
 
 
-
-        /**
+    /**
      * Admin: Create a new menu item (product)
      * Accepts multipart/form-data
      */
@@ -202,25 +214,25 @@ public function adminUpdateUser(Request $request, $id)
         // 1. Validate the request
         $validated = $request->validate([
             // Basic fields
-            'category_id'          => 'required|exists:categories,id,is_active,1',
-            'name'                 => 'required|string|max:150',
-            'description'          => 'nullable|string',
-            'base_price'           => 'required|numeric|min:0',
-            'menu_type'            => 'required|in:standard,customizable',
-            'has_size_options'     => 'boolean',
-            'is_active'            => 'boolean',
-            'stock_quantity'       => 'required_if:track_stock,true|nullable|integer|min:0',
-            'is_ready_made'        => 'boolean',
-            'track_stock'          => 'boolean',
-            'expiration_date'      => 'nullable|date|after:today',
-            'min_stock_level'      => 'nullable|integer|min:0',
-            'sku'                  => 'nullable|string|unique:menu,sku',
+            'category_id' => 'required|exists:categories,id,is_active,1',
+            'name' => 'required|string|max:150',
+            'description' => 'nullable|string',
+            'base_price' => 'required|numeric|min:0',
+            'menu_type' => 'required|in:standard,customizable',
+            'has_size_options' => 'boolean',
+            'is_active' => 'boolean',
+            'stock_quantity' => 'required_if:track_stock,true|nullable|integer|min:0',
+            'is_ready_made' => 'boolean',
+            'track_stock' => 'boolean',
+            'expiration_date' => 'nullable|date|after:today',
+            'min_stock_level' => 'nullable|integer|min:0',
+            'sku' => 'nullable|string|unique:menu,sku',
             // Image (required)
-            'image'                => 'required|image|mimes:jpeg,png,jpg,gif|max:5120', // 5MB
+            'image' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120', // 5MB
             // Optional drink sizes (JSON string)
-            'drink_sizes'          => 'nullable|json',
+            'drink_sizes' => 'nullable|json',
             // Optional BOM (JSON string)
-            'recipe'               => 'nullable|json',
+            'recipe' => 'nullable|json',
         ]);
 
         // 2. Auto‑generate SKU if not provided
@@ -242,21 +254,21 @@ public function adminUpdateUser(Request $request, $id)
         try {
             // 4.1 Create the menu item
             $menu = \App\Models\Menu::create([
-                'category_id'       => $request->category_id,
-                'sku'               => $sku,
-                'name'              => $request->name,
-                'description'       => $request->description,
-                'base_price'        => $request->base_price,
-                'menu_type'         => $request->menu_type,
-                'has_size_options'  => $request->has_size_options ?? false,
-                'is_active'         => $request->is_active ?? true,
-                'stock_quantity'    => $request->track_stock ? ($request->stock_quantity ?? 0) : null,
-                'is_ready_made'     => $request->is_ready_made ?? true,
-                'track_stock'       => $request->track_stock ?? false,
-                'expiration_date'   => $request->expiration_date,
-                'min_stock_level'   => $request->min_stock_level,
-                'image_url'         => Storage::url($imagePath),
-                'stocked_at'        => now(),
+                'category_id' => $request->category_id,
+                'sku' => $sku,
+                'name' => $request->name,
+                'description' => $request->description,
+                'base_price' => $request->base_price,
+                'menu_type' => $request->menu_type,
+                'has_size_options' => $request->has_size_options ?? false,
+                'is_active' => $request->is_active ?? true,
+                'stock_quantity' => $request->track_stock ? ($request->stock_quantity ?? 0) : null,
+                'is_ready_made' => $request->is_ready_made ?? true,
+                'track_stock' => $request->track_stock ?? false,
+                'expiration_date' => $request->expiration_date,
+                'min_stock_level' => $request->min_stock_level,
+                'image_url' => Storage::url($imagePath),
+                'stocked_at' => now(),
             ]);
 
             // 4.2 Insert drink sizes if provided and valid
@@ -266,10 +278,10 @@ public function adminUpdateUser(Request $request, $id)
                 if (is_array($sizes) && count($sizes)) {
                     foreach ($sizes as $size) {
                         $drinkSizes[] = \App\Models\DrinkSize::create([
-                            'menu_id'        => $menu->id,
-                            'size_name'      => $size['size_name'],
+                            'menu_id' => $menu->id,
+                            'size_name' => $size['size_name'],
                             'price_modifier' => $size['price_modifier'] ?? 0,
-                            'is_active'      => $size['is_active'] ?? true,
+                            'is_active' => $size['is_active'] ?? true,
                         ]);
                     }
                 }
@@ -287,11 +299,11 @@ public function adminUpdateUser(Request $request, $id)
                             throw new \Exception("Ingredient ID {$item['ingredient_id']} not found");
                         }
                         $bomEntries[] = \App\Models\BillOfMaterials::create([
-                            'menu_id'           => $menu->id,
-                            'ingredient_id'     => $item['ingredient_id'],
-                            'quantity_needed'   => $item['quantity_needed'],
-                            'unit'              => $item['unit'],
-                            'wastage_percentage'=> $item['wastage_percentage'] ?? 0,
+                            'menu_id' => $menu->id,
+                            'ingredient_id' => $item['ingredient_id'],
+                            'quantity_needed' => $item['quantity_needed'],
+                            'unit' => $item['unit'],
+                            'wastage_percentage' => $item['wastage_percentage'] ?? 0,
                         ]);
                     }
                 }
@@ -299,10 +311,10 @@ public function adminUpdateUser(Request $request, $id)
 
             // 4.4 Log activity
             \App\Models\UserActivityLog::create([
-                'user_id'       => auth()->id(),
+                'user_id' => auth()->id(),
                 'activity_type' => 'inventory_updated', // you may want 'menu_created'
-                'reference_id'  => $menu->id,
-                'details'       => "Created menu item: {$menu->name} (ID: {$menu->id})",
+                'reference_id' => $menu->id,
+                'details' => "Created menu item: {$menu->name} (ID: {$menu->id})",
             ]);
 
             DB::commit();
@@ -324,7 +336,7 @@ public function adminUpdateUser(Request $request, $id)
             Log::error('Menu creation failed: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to create product',
-                'error'   => $e->getMessage()
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -342,14 +354,23 @@ public function adminUpdateUser(Request $request, $id)
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
-            return response()->json(['message' => 'Credentials Provided are Incorrect'], 422);
+            return response()->json([
+                'message' => 'Credentials Provided are Incorrect'
+            ], 422);
+        }
+
+        // 🚨 optional security: block unverified users
+        if ($user->verification_status !== 'approved') {
+            return response()->json([
+                'message' => 'Account is not yet verified'
+            ], 403);
         }
 
         $token = $user->createToken('token')->plainTextToken;
 
         return response()->json([
             'token' => $token,
-            $user = [
+            'user' => [
                 'id' => $user->id,
                 'first_name' => $user->first_name,
                 'last_name' => $user->last_name,
@@ -357,9 +378,7 @@ public function adminUpdateUser(Request $request, $id)
                 'phone' => $user->phone,
                 'role' => $user->role
             ],
-            
             'message' => 'Login Successful'
-
         ], 200);
     }
 
