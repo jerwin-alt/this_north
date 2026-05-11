@@ -1,8 +1,9 @@
+// src/pages/Products.jsx
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Plus, Edit2, Trash2, X, Image as ImageIcon, 
+import {
+  Plus, Edit2, Trash2, X, Image as ImageIcon,
   Package, Layers, AlertCircle, Loader, Search, Eye,
   Coffee, Sparkles, Sandwich, Cookie, Cake
 } from 'lucide-react';
@@ -16,7 +17,7 @@ const SOFT_WHITE = '#FFF3D9';
 // Animation variants
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
-  visible: { 
+  visible: {
     opacity: 1, y: 0,
     transition: { duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }
   }
@@ -43,7 +44,7 @@ const categoryIcons = {
 };
 
 export default function Products() {
-  // ---------- State (unchanged) ----------
+  // ---------- State ----------
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -74,14 +75,17 @@ export default function Products() {
     is_ready_made: true,
     expiration_date: '',
     min_stock_level: '',
-    sku: '',
+    sku: '',   // not used, kept for internal state
     image: null,
   });
   const [editMode, setEditMode] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [prodFormError, setProdFormError] = useState('');
 
-  // ---------- Fetch Data (unchanged) ----------
+  // SKU preview (computed from already loaded products)
+  const [skuPreview, setSkuPreview] = useState('');
+
+  // ---------- Fetch Data ----------
   const fetchCategories = async () => {
     try {
       const res = await axios.get('/categories');
@@ -112,6 +116,52 @@ export default function Products() {
     fetchProducts();
   }, []);
 
+  // ---------- Auto SKU preview calculation ----------
+  useEffect(() => {
+    if (prodForm.category_id) {
+      const catId = prodForm.category_id;
+      const cat = categories.find(c => c.id == catId);
+      if (!cat) return;
+
+      // ----- Prefix generation (same as backend) -----
+      const words = cat.name.trim().split(/\s+/);
+      let prefix;
+      if (words.length === 1) {
+        prefix = words[0].substring(0, 2).toUpperCase();
+      } else {
+        let initials = '';
+        for (const w of words) {
+          if (w) {
+            initials += w[0];
+            if (initials.length >= 2) break;
+          }
+        }
+        // Fallback: pad with second letter of first word if needed
+        prefix = initials.toUpperCase().padEnd(2, (words[0][1] || '').toUpperCase());
+      }
+
+      // Filter existing products with the same prefix and category
+      const relevantProducts = products.filter(
+        p => p.category_id == catId && p.sku && p.sku.startsWith(prefix + '-')
+      );
+
+      let maxNum = 0;
+      relevantProducts.forEach(p => {
+        const parts = p.sku.split('-');
+        if (parts.length === 2) {
+          const num = parseInt(parts[1], 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      });
+
+      const nextNum = maxNum + 1;
+      const generated = prefix + '-' + String(nextNum).padStart(4, '0');
+      setSkuPreview(generated);
+    } else {
+      setSkuPreview('');
+    }
+  }, [prodForm.category_id, categories, products]);
+
   // Filter products by selected category
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -131,11 +181,7 @@ export default function Products() {
   const openEditCategory = (cat) => {
     setCatEditMode(true);
     setCurrentCategory(cat);
-    setCatForm({
-      name: cat.name,
-      description: cat.description || '',
-      is_active: cat.is_active,
-    });
+    setCatForm({ name: cat.name, description: cat.description || '', is_active: cat.is_active });
     setShowCatModal(true);
   };
 
@@ -167,7 +213,7 @@ export default function Products() {
     }
   };
 
-  // ---------- Product Handlers (unchanged) ----------
+  // ---------- Product Handlers ----------
   const openAddProduct = () => {
     setEditMode(false);
     setEditingProduct(null);
@@ -255,7 +301,7 @@ export default function Products() {
     formData.append('stock_quantity', prodForm.stock_quantity === '' ? 0 : prodForm.stock_quantity);
     formData.append('min_stock_level', prodForm.min_stock_level === '' ? 0 : (prodForm.min_stock_level || 0));
     if (prodForm.expiration_date) formData.append('expiration_date', prodForm.expiration_date);
-    if (prodForm.sku) formData.append('sku', prodForm.sku);
+    // DO NOT send SKU – the backend will generate it
     if (prodForm.image) formData.append('image', prodForm.image);
 
     try {
@@ -271,6 +317,7 @@ export default function Products() {
       }
       await fetchProducts();
       setShowProdModal(false);
+      // Reset form
       setProdForm({
         category_id: categories[0]?.id || '',
         name: '', description: '', base_price: '', menu_type: 'standard',
@@ -415,6 +462,7 @@ export default function Products() {
       <div className="max-w-7xl mx-auto relative" style={{ zIndex: 1 }}>
 
         {/* ── Header ── */}
+
         <motion.div
           variants={fadeInUp}
           initial="hidden"
@@ -734,7 +782,7 @@ export default function Products() {
         </motion.div>
       </div>
 
-      {/* ══ Category Modal ══ */}
+      {/* ══ Category Modal (unchanged) ══ */}
       <AnimatePresence>
         {showCatModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, backdropFilter: 'blur(4px)' }}>
@@ -991,19 +1039,21 @@ export default function Products() {
                     />
                   </div>
 
-                  {/* SKU */}
+                  {/* SKU – now read-only preview */}
                   <div>
                     <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: SAGE, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
-                      SKU <span style={{ color: MUTED_GRAY, fontWeight: 400 }}>(optional)</span>
+                      SKU <span style={{ color: MUTED_GRAY, fontWeight: 400 }}>(auto‑generated)</span>
                     </label>
                     <input
                       type="text"
-                      name="sku"
-                      value={prodForm.sku}
-                      onChange={handleProdInputChange}
-                      className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all"
-                      style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                      value={editMode ? prodForm.sku : skuPreview}
+                      disabled
+                      className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                      style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#f0f0f0' }}
                     />
+                    <p style={{ color: MUTED_GRAY, fontSize: '0.7rem', marginTop: 4 }}>
+                      SKU is set automatically based on the selected category
+                    </p>
                   </div>
 
                   {/* Expiration Date */}

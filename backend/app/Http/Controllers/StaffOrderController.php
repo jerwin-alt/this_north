@@ -8,6 +8,7 @@ use App\Models\Menu;
 use App\Models\BillOfMaterials;
 use App\Models\Ingredient;
 use App\Models\InventoryTransaction;
+use App\Models\UserActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -81,7 +82,6 @@ class StaffOrderController extends Controller
 
         DB::beginTransaction();
         try {
-            // Generate order number – fixed: use orderBy('id','desc') instead of latest()
             $lastOrder = Order::orderBy('id', 'desc')->first();
             $number = $lastOrder ? ((int)substr($lastOrder->order_number, -4)) + 1 : 1;
             $orderNumber = 'ORD-' . now()->format('Ymd') . '-' . str_pad($number, 4, '0', STR_PAD_LEFT);
@@ -161,7 +161,6 @@ class StaffOrderController extends Controller
             ])->toArray());
 
             if (isset($validated['items'])) {
-                // Remove old items
                 $order->items()->delete();
                 $subtotal = 0;
                 foreach ($validated['items'] as $itemData) {
@@ -208,7 +207,7 @@ class StaffOrderController extends Controller
     }
 
     /**
-     * PUT /api/staff/orders/{id}/status – status progression (existing)
+     * PUT /api/staff/orders/{id}/status – status progression (fixed)
      */
     public function updateStatus(Request $request, $id)
     {
@@ -216,7 +215,7 @@ class StaffOrderController extends Controller
             'status' => ['required', Rule::in(array_keys($this->allowedStatusTransitions))],
         ]);
 
-        $order = Order::with('items.billOfMaterials.ingredient')->findOrFail($id);
+        $order = Order::with(['items.menu', 'items.menu.billOfMaterials.ingredient'])->findOrFail($id);
         $newStatus = $request->status;
         $currentStatus = $order->status;
 
@@ -228,16 +227,15 @@ class StaffOrderController extends Controller
 
         DB::beginTransaction();
         try {
-            // Inventory deduction when confirming (only standard items)
-            if ($newStatus === 'confirmed' && $currentStatus !== 'confirmed') {
+            // Inventory deduction only when confirming (pending → confirmed)
+            if ($newStatus === 'confirmed' && $currentStatus === 'pending') {
                 $this->deductInventory($order);
             }
 
             $order->status = $newStatus;
             $order->save();
 
-            // Log activity
-            \App\Models\UserActivityLog::create([
+            UserActivityLog::create([
                 'user_id'       => auth()->id(),
                 'activity_type' => 'order_status_updated',
                 'reference_id'  => $order->id,
@@ -245,19 +243,26 @@ class StaffOrderController extends Controller
             ]);
 
             DB::commit();
+
+            return response()->json([
+                'message' => "Order status updated to {$newStatus}",
+                'order'   => $order->fresh('items.menu'),
+            ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to update status: ' . $e->getMessage()], 500);
+            \Log::error('Status update failed: ' . $e->getMessage(), [
+                'order_id' => $order->id,
+                'new_status' => $newStatus,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'message' => 'Failed to update status: ' . $e->getMessage()
+            ], 500);
         }
-
-        return response()->json([
-            'message' => "Order status updated to {$newStatus}",
-            'order'   => $order->fresh('items'),
-        ]);
     }
 
     /**
-     * Inventory deduction logic (only for standard menu items)
+     * Inventory deduction logic (only for standard menu items with a Bill of Materials)
      */
     private function deductInventory(Order $order)
     {
@@ -265,9 +270,16 @@ class StaffOrderController extends Controller
             $quantity = $item->quantity;
             $bomItems = BillOfMaterials::where('menu_id', $item->menu_id)->get();
 
+            // If no ingredients defined for this product, skip deduction
+            if ($bomItems->isEmpty()) {
+                continue;
+            }
+
             foreach ($bomItems as $bom) {
                 $ingredient = Ingredient::lockForUpdate()->find($bom->ingredient_id);
-                if (!$ingredient) continue;
+                if (!$ingredient) {
+                    throw new \Exception("Ingredient ID {$bom->ingredient_id} not found.");
+                }
 
                 $totalNeeded = $bom->quantity_needed * $quantity;
 

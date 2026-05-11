@@ -1,9 +1,8 @@
 // src/pages/Customers.jsx
 import React, { useState, useEffect } from 'react';
-import { Users as UsersIcon, Loader, AlertCircle, Search, Stamp } from 'lucide-react';
+import { Users as UsersIcon, Loader, AlertCircle, Search, CheckCircle, XCircle, Image as ImageIcon } from 'lucide-react';
 import axios from '/api/axios';
 
-// Color palette
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
 const MUTED_GRAY = '#A6A29A';
@@ -34,6 +33,24 @@ export default function Customers() {
   useEffect(() => {
     fetchCustomers();
   }, []);
+
+  const handleApprove = async (id) => {
+    try {
+      await axios.patch(`/admin/customers/${id}/approve`);
+      fetchCustomers();
+    } catch (err) {
+      alert('Approval failed: ' + (err.response?.data?.message || ''));
+    }
+  };
+
+  const handleReject = async (id) => {
+    try {
+      await axios.patch(`/admin/customers/${id}/reject`);
+      fetchCustomers();
+    } catch (err) {
+      alert('Rejection failed: ' + (err.response?.data?.message || ''));
+    }
+  };
 
   const filteredCustomers = customers.filter(customer =>
     (customer.first_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -66,52 +83,18 @@ export default function Customers() {
     <div style={{ background: CREAM, minHeight: '100vh', padding: '36px 28px' }}>
       <style>{`
         .grain-overlay {
-          position: fixed;
-          inset: 0;
-          pointer-events: none;
-          z-index: 0;
-          opacity: 0.028;
+          position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0.028;
           background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-          background-repeat: repeat;
-          background-size: 128px;
+          background-repeat: repeat; background-size: 128px;
         }
-        .divider-line {
-          height: 1px;
-          background: linear-gradient(90deg, transparent, rgba(79,95,82,0.15), transparent);
-        }
-        .cust-table tbody tr {
-          transition: background 0.15s ease;
-        }
-        .cust-table tbody tr:hover {
-          background: rgba(242,237,228,0.7);
-        }
-        .search-input {
-          transition: all 0.2s ease;
-          outline: none;
-        }
-        .search-input:focus {
-          box-shadow: 0 0 0 3px rgba(79,95,82,0.12);
-          border-color: #4F5F52 !important;
-        }
-        .avatar-ring {
-          width: 34px;
-          height: 34px;
-          border-radius: 50%;
-          background: linear-gradient(135deg, #4F5F52, #3e4c42);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          font-size: 0.75rem;
-          font-weight: 700;
-          color: #fff;
-          letter-spacing: 0.02em;
-          box-shadow: 0 2px 8px rgba(79,95,82,0.2);
-        }
-        @keyframes fadeInUp {
-          from { opacity: 0; transform: translateY(16px); }
-          to { opacity: 1; transform: none; }
-        }
+        .divider-line { height: 1px; background: linear-gradient(90deg, transparent, rgba(79,95,82,0.15), transparent); }
+        .cust-table tbody tr { transition: background 0.15s ease; }
+        .cust-table tbody tr:hover { background: rgba(242,237,228,0.7); }
+        .search-input { transition: all 0.2s ease; outline: none; }
+        .search-input:focus { box-shadow: 0 0 0 3px rgba(79,95,82,0.12); border-color: #4F5F52 !important; }
+        .action-btn { transition: all 0.18s ease; border-radius: 10px; border: none; cursor: pointer; }
+        .action-btn:hover { transform: scale(1.12); }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
         .fade-in   { animation: fadeInUp 0.4s ease both; }
         .fade-in-1 { animation: fadeInUp 0.4s 0.05s ease both; }
         .fade-in-2 { animation: fadeInUp 0.4s 0.10s ease both; }
@@ -122,7 +105,7 @@ export default function Customers() {
 
       <div className="max-w-7xl mx-auto relative" style={{ zIndex: 1 }}>
 
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="flex flex-wrap justify-between items-start gap-4 mb-8 fade-in">
           <div>
             <div className="flex items-center gap-3 mb-1">
@@ -141,11 +124,10 @@ export default function Customers() {
               </h1>
             </div>
             <p style={{ color: MUTED_GRAY, fontSize: '0.82rem', letterSpacing: '0.03em', marginLeft: 48 }}>
-              View registered customer details
+              View registered customers &amp; manage verifications
             </p>
           </div>
 
-          {/* Customer count pill */}
           {customers.length > 0 && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,
@@ -162,15 +144,13 @@ export default function Customers() {
           )}
         </div>
 
-        {/* ── Divider ── */}
         <div className="divider-line mb-7" />
 
-        {/* ── Search Bar ── */}
+        {/* Search bar */}
         <div className="relative w-full md:w-96 mb-7 fade-in-1">
           <Search
             className="absolute left-3.5 top-1/2 -translate-y-1/2"
-            style={{ color: MUTED_GRAY }}
-            size={15}
+            style={{ color: MUTED_GRAY }} size={15}
           />
           <input
             type="text"
@@ -186,14 +166,13 @@ export default function Customers() {
           />
         </div>
 
-        {/* Results count */}
         {filteredCustomers.length > 0 && (
           <p className="fade-in-1" style={{ color: MUTED_GRAY, fontSize: '0.78rem', marginBottom: '1.25rem', letterSpacing: '0.04em' }}>
             {filteredCustomers.length} customer{filteredCustomers.length !== 1 ? 's' : ''} found
           </p>
         )}
 
-        {/* ── Customers Table ── */}
+        {/* Customers Table */}
         <div className="fade-in-2" style={{
           background: '#fff',
           borderRadius: 20,
@@ -205,7 +184,7 @@ export default function Customers() {
             <table className="cust-table w-full text-sm">
               <thead>
                 <tr style={{ background: `linear-gradient(135deg, ${CREAM}, rgba(255,243,217,0.5))` }}>
-                  {['Name', 'Email', 'Phone', 'Birth Date', 'Address', 'Verification', 'Stamps', 'Status'].map(col => (
+                  {['Name', 'Email', 'Phone', 'Birth Date', 'Address', 'Verification', 'Stamps', 'Status', 'Actions'].map(col => (
                     <th key={col} style={{
                       padding: '13px 20px',
                       textAlign: 'left',
@@ -224,7 +203,7 @@ export default function Customers() {
               <tbody style={{ borderTop: `1px solid ${CREAM}` }}>
                 {filteredCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '48px 20px', color: MUTED_GRAY }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '48px 20px', color: MUTED_GRAY }}>
                       <div style={{
                         width: 56, height: 56,
                         background: 'rgba(166,162,154,0.1)',
@@ -239,159 +218,188 @@ export default function Customers() {
                     </td>
                   </tr>
                 ) : (
-                  filteredCustomers.map((customer, idx) => {
-                    const initials = `${(customer.first_name || '')[0] || ''}${(customer.last_name || '')[0] || ''}`.toUpperCase();
-                    return (
-                      <tr key={customer.id} style={{ borderTop: idx === 0 ? 'none' : `1px solid rgba(242,237,228,0.8)` }}>
-
-                        {/* Name + avatar */}
-                        <td style={{ padding: '13px 20px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <div className="avatar-ring">{initials || '?'}</div>
-                            <span style={{ fontWeight: 600, color: SAGE, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-                              {customer.first_name} {customer.last_name}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* Email */}
-                        <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.82rem' }}>
-                          {customer.email}
-                        </td>
-
-                        {/* Phone */}
-                        <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-                          {customer.phone || '—'}
-                        </td>
-
-                        {/* Birth Date */}
-                        <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-                          {customer.birth_date || '—'}
-                        </td>
-
-                        {/* Address */}
-                        <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.78rem', maxWidth: 200 }}>
-                          <span style={{
-                            display: 'block',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
+                  filteredCustomers.map((customer, idx) => (
+                    <tr key={customer.id} style={{ borderTop: idx === 0 ? 'none' : `1px solid rgba(242,237,228,0.8)` }}>
+                      
+                      {/* Name */}
+                      <td style={{ padding: '13px 20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{
+                            width: 34, height: 34,
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, #4F5F52, #3e4c42)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '0.75rem', fontWeight: 700, color: '#fff',
+                            boxShadow: '0 2px 8px rgba(79,95,82,0.2)',
+                            flexShrink: 0,
                           }}>
-                            {customer.address || '—'}
+                            {(customer.first_name?.[0] || '')}{(customer.last_name?.[0] || '')}
+                          </div>
+                          <span style={{ fontWeight: 600, color: SAGE, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                            {customer.first_name} {customer.last_name}
                           </span>
-                        </td>
+                        </div>
+                      </td>
 
-                        {/* Verification */}
-                        <td style={{ padding: '13px 20px' }}>
-                          {customer.verification_type ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                <span style={{
-                                  fontSize: '0.72rem', fontWeight: 600, color: SAGE,
-                                  background: 'rgba(79,95,82,0.07)',
-                                  borderRadius: 5,
-                                  padding: '1px 7px',
-                                  textTransform: 'capitalize',
-                                }}>
-                                  {customer.verification_type.replace('_', ' ')}
-                                </span>
-                                <span style={{
-                                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                                  fontSize: '0.68rem', fontWeight: 600,
-                                  padding: '2px 8px', borderRadius: 999,
-                                  background: customer.verification_status === 'approved'
-                                    ? 'rgba(52,196,104,0.1)'
-                                    : customer.verification_status === 'rejected'
-                                      ? 'rgba(239,68,68,0.08)'
-                                      : 'rgba(234,179,8,0.1)',
-                                  color: customer.verification_status === 'approved'
-                                    ? '#1a7a3c'
-                                    : customer.verification_status === 'rejected'
-                                      ? '#c0392b'
-                                      : '#92670a',
-                                  border: `1px solid ${customer.verification_status === 'approved'
+                      {/* Email */}
+                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.82rem' }}>
+                        {customer.email}
+                      </td>
+
+                      {/* Phone */}
+                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                        {customer.phone || '—'}
+                      </td>
+
+                      {/* Birth Date */}
+                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                        {customer.birth_date || '—'}
+                      </td>
+
+                      {/* Address */}
+                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.78rem', maxWidth: 200 }}>
+                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {customer.address || '—'}
+                        </span>
+                      </td>
+
+                      {/* Verification */}
+                      <td style={{ padding: '13px 20px' }}>
+                        {customer.verification_type ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{
+                                fontSize: '0.72rem', fontWeight: 600, color: SAGE,
+                                background: 'rgba(79,95,82,0.07)',
+                                borderRadius: 5, padding: '1px 7px',
+                                textTransform: 'capitalize',
+                              }}>
+                                {customer.verification_type.replace('_', ' ')}
+                              </span>
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                fontSize: '0.68rem', fontWeight: 600,
+                                padding: '2px 8px', borderRadius: 999,
+                                background: customer.verification_status === 'approved'
+                                  ? 'rgba(52,196,104,0.1)'
+                                  : customer.verification_status === 'rejected'
+                                    ? 'rgba(239,68,68,0.08)'
+                                    : 'rgba(234,179,8,0.1)',
+                                color: customer.verification_status === 'approved'
+                                  ? '#1a7a3c'
+                                  : customer.verification_status === 'rejected'
+                                    ? '#c0392b'
+                                    : '#92670a',
+                                border: `1px solid ${
+                                  customer.verification_status === 'approved'
                                     ? 'rgba(52,196,104,0.2)'
                                     : customer.verification_status === 'rejected'
                                       ? 'rgba(239,68,68,0.15)'
-                                      : 'rgba(234,179,8,0.2)'}`,
-                                }}>
-                                  <span style={{
-                                    width: 5, height: 5, borderRadius: '50%',
-                                    background: customer.verification_status === 'approved' ? '#34c468' : customer.verification_status === 'rejected' ? '#ef4444' : '#eab308',
-                                    display: 'inline-block',
-                                  }} />
-                                  {customer.verification_status}
-                                </span>
-                              </div>
-                              {customer.id_number && (
-                                <p style={{ fontSize: '0.7rem', color: MUTED_GRAY, margin: 0 }}>ID: {customer.id_number}</p>
-                              )}
-                              {customer.expires_at && (
-                                <p style={{ fontSize: '0.7rem', color: MUTED_GRAY, margin: 0 }}>Exp: {customer.expires_at}</p>
-                              )}
-                            </div>
-                          ) : (
-                            <span style={{ color: MUTED_GRAY }}>—</span>
-                          )}
-                        </td>
-
-                        {/* Stamps */}
-                        <td style={{ padding: '13px 20px' }}>
-                          <div style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                            background: (customer.signature_stamps ?? 0) > 0
-                              ? 'rgba(79,95,82,0.07)'
-                              : 'rgba(166,162,154,0.08)',
-                            borderRadius: 8,
-                            padding: '3px 10px',
-                          }}>
-                            <span style={{
-                              fontSize: '0.82rem',
-                              fontWeight: 700,
-                              color: (customer.signature_stamps ?? 0) > 0 ? SAGE : MUTED_GRAY,
-                              letterSpacing: '-0.01em',
-                            }}>
-                              {customer.signature_stamps ?? 0}
-                            </span>
-                            <span style={{ fontSize: '0.68rem', color: MUTED_GRAY, fontWeight: 500 }}>stamps</span>
-                          </div>
-                        </td>
-
-                        {/* Status */}
-                        <td style={{ padding: '13px 20px' }}>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                            <span style={{
-                              display: 'inline-flex', alignItems: 'center', gap: 4,
-                              padding: '3px 10px', borderRadius: 999,
-                              fontSize: '0.68rem', fontWeight: 600,
-                              background: customer.is_active ? 'rgba(52,196,104,0.1)' : 'rgba(239,68,68,0.08)',
-                              color: customer.is_active ? '#1a7a3c' : '#c0392b',
-                              border: `1px solid ${customer.is_active ? 'rgba(52,196,104,0.2)' : 'rgba(239,68,68,0.15)'}`,
-                            }}>
-                              <span style={{
-                                width: 5, height: 5, borderRadius: '50%',
-                                background: customer.is_active ? '#34c468' : '#ef4444',
-                                display: 'inline-block',
-                              }} />
-                              {customer.is_active ? 'Active' : 'Inactive'}
-                            </span>
-                            {customer.is_walk_in_customer && (
-                              <span style={{
-                                display: 'inline-flex', alignItems: 'center',
-                                padding: '3px 9px', borderRadius: 999,
-                                fontSize: '0.68rem', fontWeight: 600,
-                                background: 'rgba(79,130,222,0.1)',
-                                color: '#2c5eb0',
-                                border: '1px solid rgba(79,130,222,0.2)',
+                                      : 'rgba(234,179,8,0.2)'
+                                }`,
                               }}>
-                                Walk-in
+                                <span style={{
+                                  width: 5, height: 5, borderRadius: '50%',
+                                  background: customer.verification_status === 'approved' ? '#34c468'
+                                    : customer.verification_status === 'rejected' ? '#ef4444'
+                                    : '#eab308',
+                                  display: 'inline-block',
+                                }} />
+                                {customer.verification_status}
                               </span>
+                            </div>
+                            {customer.id_number && (
+                              <p style={{ fontSize: '0.7rem', color: MUTED_GRAY, margin: 0 }}>ID: {customer.id_number}</p>
+                            )}
+                            {customer.image && (
+                              <a
+                                href={customer.image}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ display: 'flex', alignItems: 'center', gap: 4, color: SAGE, fontSize: '0.7rem', marginTop: 2 }}
+                              >
+                                <ImageIcon size={12} /> View ID
+                              </a>
                             )}
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })
+                        ) : (
+                          <span style={{ color: MUTED_GRAY }}>Regular</span>
+                        )}
+                      </td>
+
+                      {/* Stamps */}
+                      <td style={{ padding: '13px 20px' }}>
+                        <div style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          background: (customer.signature_stamps ?? 0) > 0
+                            ? 'rgba(79,95,82,0.07)' : 'rgba(166,162,154,0.08)',
+                          borderRadius: 8, padding: '3px 10px',
+                        }}>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: (customer.signature_stamps ?? 0) > 0 ? SAGE : MUTED_GRAY }}>
+                            {customer.signature_stamps ?? 0}
+                          </span>
+                          <span style={{ fontSize: '0.68rem', color: MUTED_GRAY, fontWeight: 500 }}>stamps</span>
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td style={{ padding: '13px 20px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            padding: '3px 10px', borderRadius: 999,
+                            fontSize: '0.68rem', fontWeight: 600,
+                            background: customer.is_active ? 'rgba(52,196,104,0.1)' : 'rgba(239,68,68,0.08)',
+                            color: customer.is_active ? '#1a7a3c' : '#c0392b',
+                            border: `1px solid ${customer.is_active ? 'rgba(52,196,104,0.2)' : 'rgba(239,68,68,0.15)'}`,
+                          }}>
+                            <span style={{
+                              width: 5, height: 5, borderRadius: '50%',
+                              background: customer.is_active ? '#34c468' : '#ef4444',
+                              display: 'inline-block',
+                            }} />
+                            {customer.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                          {customer.is_walk_in_customer && (
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center',
+                              padding: '3px 9px', borderRadius: 999,
+                              fontSize: '0.68rem', fontWeight: 600,
+                              background: 'rgba(79,130,222,0.1)',
+                              color: '#2c5eb0',
+                              border: '1px solid rgba(79,130,222,0.2)',
+                            }}>
+                              Walk-in
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Actions (Approve / Reject) */}
+                      <td style={{ padding: '13px 20px', whiteSpace: 'nowrap' }}>
+                        {customer.verification_status === 'pending' && (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button
+                              onClick={() => handleApprove(customer.id)}
+                              className="action-btn p-1.5 rounded-lg"
+                              style={{ background: 'rgba(22,163,74,0.1)', color: '#16a34a' }}
+                              title="Approve verification"
+                            >
+                              <CheckCircle size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleReject(customer.id)}
+                              className="action-btn p-1.5 rounded-lg"
+                              style={{ background: 'rgba(220,38,38,0.1)', color: '#dc2626' }}
+                              title="Reject verification"
+                            >
+                              <XCircle size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>

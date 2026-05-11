@@ -2,30 +2,196 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Order;
+use App\Models\UserActivityLog;
 use Illuminate\Http\Request;
-// use App\Models\Order;
-// use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class AdminOrderController extends Controller
 {
-        /**
-     * TEMPORARY SAFE VERSION
+    /**
+     * List all orders with schedule information.
+     * Admins see all statuses, but calendar uses only confirmed/preparing/ready.
      */
     public function index(Request $request)
     {
+        $query = Order::with(['items.menu:id,name,base_price,menu_type', 'customer:id,first_name,last_name,phone'])
+            ->whereNotNull('pickup_date')   // only orders with schedule
+            ->orderBy('pickup_date')
+            ->orderBy('pickup_time');
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('order_number', 'like', "%{$search}%")
+                  ->orWhere('customer_name', 'like', "%{$search}%");
+            });
+        }
+
+        $orders = $query->paginate(50); // paginate for calendar performance
+
         return response()->json([
-            'data' => [], // IMPORTANT: matches frontend expectation
-            'message' => 'Order system not implemented yet'
+            'orders' => $orders,
+            'message' => 'Orders retrieved successfully'
         ]);
     }
 
-    public function updateSchedule(Request $request, $id)
+    /**
+     * Approve an order – confirm its schedule.
+     * Validates:
+     *   - No time‑slot conflict with already confirmed/preparing/ready orders.
+     *   - 7‑day rule for customizable cakes.
+     */
+    public function approve($id)
     {
+        $order = Order::with('items.menu')->findOrFail($id);
+        if ($order->status !== 'pending') {
+            return response()->json(['message' => 'Only pending orders can be approved'], 422);
+        }
+
+        $pickupDate = $order->pickup_date;
+        $pickupTime = $order->pickup_time;
+
+        // 1. Conflict check (exclude current order)
+        $conflict = Order::where('id', '!=', $order->id)
+            ->where('pickup_date', $pickupDate)
+            ->where('pickup_time', $pickupTime)
+            ->whereIn('status', ['confirmed', 'preparing', 'ready'])
+            ->exists();
+
+        if ($conflict) {
+            return response()->json([
+                'message' => 'Schedule conflict: another order is already confirmed for this date and time.'
+            ], 409);
+        }
+
+        // 2. 7‑day rule for customizable cakes
+        foreach ($order->items as $item) {
+            if ($item->menu && $item->menu->menu_type === 'customizable') {
+                $cutoff = Carbon::parse($pickupDate)->subDays(7);
+                if (Carbon::now()->greaterThan($cutoff)) {
+                    return response()->json([
+                        'message' => 'Custom cake orders must be placed at least 7 days before pickup.'
+                    ], 422);
+                }
+            }
+        }
+
+        // Approve
+        $order->status = 'confirmed';
+        $order->save();
+
+        // Log activity
+        UserActivityLog::create([
+            'user_id'       => auth()->id(),
+            'activity_type' => 'order_status_updated',
+            'reference_id'  => $order->id,
+            'details'       => "Order {$order->order_number} approved (confirmed)",
+        ]);
+
         return response()->json([
-            'message' => 'Schedule update not available yet'
-        ], 501); // Not implemented
+            'message' => 'Order approved and schedule confirmed.',
+            'order'   => $order->fresh('items.menu'),
+        ]);
     }
 
+    /**
+     * Reject an order – set status to cancelled.
+     */
+    public function reject($id)
+    {
+        $order = Order::findOrFail($id);
+        if (!in_array($order->status, ['pending', 'confirmed'])) {
+            return response()->json(['message' => 'Only pending or confirmed orders can be rejected'], 422);
+        }
 
+        $order->status = 'cancelled';
+        $order->save();
 
+        UserActivityLog::create([
+            'user_id'       => auth()->id(),
+            'activity_type' => 'order_cancelled',
+            'reference_id'  => $order->id,
+            'details'       => "Order {$order->order_number} rejected by admin",
+        ]);
+
+        return response()->json([
+            'message' => 'Order rejected successfully.',
+            'order'   => $order->fresh(),
+        ]);
+    }
+
+    /**
+     * Get all orders for a specific date (used by calendar).
+     */
+    public function byDate(Request $request)
+    {
+        $date = $request->input('date');
+        $orders = Order::with(['items.menu:id,name,base_price'])
+            ->where('pickup_date', $date)
+            ->whereIn('status', ['confirmed', 'preparing', 'ready'])
+            ->orderBy('pickup_time')
+            ->get();
+
+        return response()->json([
+            'orders' => $orders,
+            'date'   => $date,
+        ]);
+    }
+
+    /**
+     * Update schedule (pickup date/time) of an order.
+     * Used by admin to adjust schedule if needed.
+     */
+    public function updateSchedule(Request $request, $id)
+    {
+        $order = Order::findOrFail($id);
+        $validated = $request->validate([
+            'pickup_date' => 'required|date|after_or_equal:today',
+            'pickup_time' => 'required|date_format:H:i:s',
+        ]);
+
+        // Conflict check (excluding current order)
+        $conflict = Order::where('id', '!=', $order->id)
+            ->where('pickup_date', $validated['pickup_date'])
+            ->where('pickup_time', $validated['pickup_time'])
+            ->whereIn('status', ['confirmed', 'preparing', 'ready'])
+            ->exists();
+
+        if ($conflict) {
+            return response()->json([
+                'message' => 'Cannot change to this time – another order already scheduled.'
+            ], 409);
+        }
+
+        // 7‑day rule if menu items contain customizable cakes
+        foreach ($order->items as $item) {
+            if ($item->menu && $item->menu->menu_type === 'customizable') {
+                $cutoff = Carbon::parse($validated['pickup_date'])->subDays(7);
+                if (Carbon::now()->greaterThan($cutoff)) {
+                    return response()->json([
+                        'message' => 'Custom cakes require at least 7 days before pickup.'
+                    ], 422);
+                }
+            }
+        }
+
+        $order->update($validated);
+
+        UserActivityLog::create([
+            'user_id'       => auth()->id(),
+            'activity_type' => 'order_status_updated',
+            'reference_id'  => $order->id,
+            'details'       => "Admin updated schedule for order {$order->order_number}",
+        ]);
+
+        return response()->json([
+            'message' => 'Schedule updated successfully.',
+            'order'   => $order->fresh('items.menu'),
+        ]);
+    }
 }

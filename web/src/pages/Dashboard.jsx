@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/auth-context';
 import {
   LayoutDashboard, Users, Package, Box, Percent, BarChart3,
-  LogOut, Cake, Menu,  UserCheck, ShoppingBag
+  LogOut, Cake, Menu,  UserCheck, ShoppingBag, Calendar 
 } from 'lucide-react';
 
 const menuItems = [
@@ -11,9 +11,10 @@ const menuItems = [
   { name: 'Users', icon: Users, path: '/pages/dashboard/users' },
   { name: 'Customers', icon: UserCheck, path: '/pages/dashboard/customers' }, // new
   { name: 'Products', icon: Package, path: '/pages/dashboard/products' },
-  { name: 'Orders', icon: ShoppingBag, path: '/pages/dashboard/orders' }, // ← new
   { name: 'Ingredients', icon: Box, path: '/pages/dashboard/ingredients' },
+  { name: 'Orders', icon: ShoppingBag, path: '/pages/dashboard/orders' }, // ← new
   { name: 'Discounts', icon: Percent, path: '/pages/dashboard/discounts' },
+  { name: 'Schedule', icon: Calendar, path: '/pages/dashboard/schedule' },
   { name: 'Inventory', icon: Package, path: '/pages/dashboard/inventory' },
   { name: 'Reports', icon: BarChart3, path: '/pages/dashboard/reports' },
 ]

@@ -13,12 +13,15 @@ import Ingredients from './pages/Ingredients';
 import Discounts from './pages/Discounts';  
 import Reports from './pages/Reports';
 import Customers from './pages/Customers';  // at top
+import AdminSchedule from './pages/AdminSchedule.jsx';
 
 import StaffDashboard from './pages/StaffDashboard.jsx';
 import StaffOverview from './pages/StaffOverview.jsx'; // create this too
 import StaffOrders from './pages/StaffOrders.jsx'; // create this too
 import StaffDiscounts from './pages/StaffDiscounts.jsx'; 
 import StaffProducts from './pages/StaffProducts.jsx';
+import StaffSchedule from './pages/StaffSchedule.jsx';
+
 
 
 createRoot(document.getElementById('root')).render(
@@ -41,6 +44,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="ingredients" element={<Ingredients />} />
           <Route path="discounts" element={<Discounts />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="schedule" element={<AdminSchedule />} />
 
           {/* You will add other routes here later */}
           {/* <Route path="orders" element={<Orders />} /> */}
@@ -55,6 +59,8 @@ createRoot(document.getElementById('root')).render(
             <Route path="orders" element={<StaffOrders />} />
             <Route path="discounts" element={<StaffDiscounts />} /> 
             <Route path="products" element={<StaffProducts />} />
+            <Route path="schedule" element={<StaffSchedule />} />
+
           {/* other staff sub‑routes if needed later */}
         </Route>
 

@@ -9,13 +9,13 @@ use Illuminate\Validation\Rules\Password;
 
 class AdminUserController extends Controller
 {
+    // ---------- EXISTING METHODS (keep them) ----------
     public function getAllUsers()
     {
         $users = User::all();
-
         return response()->json([
-            'users' => $users,
-            'count' => $users->count(),
+            'users'   => $users,
+            'count'   => $users->count(),
             'message' => 'All users retrieved successfully'
         ]);
     }
@@ -23,10 +23,9 @@ class AdminUserController extends Controller
     public function getStaffUsers()
     {
         $staffUsers = User::where('role', 'staff')->get();
-
         return response()->json([
-            'users' => $staffUsers,
-            'count' => $staffUsers->count(),
+            'users'   => $staffUsers,
+            'count'   => $staffUsers->count(),
             'message' => 'Staff users retrieved successfully'
         ]);
     }
@@ -35,7 +34,7 @@ class AdminUserController extends Controller
     {
         try {
             $request->validate([
-                'role' => ['required', 'string', 'in:admin,staff'],
+                'role' => ['required', 'string', 'in:admin,staff,'],
                 'first_name' => ['required', 'string'],
                 'last_name' => ['required', 'string'],
                 'email' => ['required', 'string', 'email', 'unique:users,email'],
@@ -68,13 +67,10 @@ class AdminUserController extends Controller
                 'message' => 'User created successfully',
                 'user' => $user
             ], 201);
-
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json(['errors' => $e->errors()], 422);
         } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Server error: ' . $e->getMessage()
-            ], 500);
+            return response()->json(['message' => 'Server error: ' . $e->getMessage()], 500);
         }
     }
 
@@ -118,18 +114,14 @@ class AdminUserController extends Controller
     public function softDeleteUser($id)
     {
         $user = User::findOrFail($id);
-
         $user->update(['is_active' => false]);
 
-        return response()->json([
-            'message' => 'User deactivated successfully'
-        ]);
+        return response()->json(['message' => 'User deactivated successfully']);
     }
 
     public function toggleUserStatus($id)
     {
         $user = User::findOrFail($id);
-
         $user->update(['is_active' => !$user->is_active]);
 
         return response()->json([
@@ -138,20 +130,41 @@ class AdminUserController extends Controller
         ]);
     }
 
-
-        /**
-     * Get all customers (users with role = 'customer')
+    // ---------- NEW CUSTOMER MANAGEMENT METHODS ----------
+    /**
+     * Get all customers (role = 'customer').
      */
     public function getCustomers()
     {
         $customers = User::where('role', 'customer')
-                    ->orderBy('created_at', 'desc')
-                    ->get();
+            ->orderBy('created_at', 'desc')
+            ->get();
 
         return response()->json([
             'customers' => $customers,
             'count'     => $customers->count(),
-            'message'   => 'Customers retrieved successfully'
         ]);
+    }
+
+    /**
+     * Approve customer verification.
+     */
+    public function approveCustomer($id)
+    {
+        $customer = User::where('role', 'customer')->findOrFail($id);
+        $customer->update(['verification_status' => 'approved']);
+
+        return response()->json(['message' => 'Customer approved successfully']);
+    }
+
+    /**
+     * Reject customer verification.
+     */
+    public function rejectCustomer($id)
+    {
+        $customer = User::where('role', 'customer')->findOrFail($id);
+        $customer->update(['verification_status' => 'rejected']);
+
+        return response()->json(['message' => 'Customer rejected successfully']);
     }
 }

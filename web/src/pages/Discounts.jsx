@@ -33,6 +33,7 @@ export default function Discounts() {
     requires_verification: false,
   });
 
+  // Fetch all discounts
   const fetchDiscounts = async () => {
     setLoading(true);
     try {
@@ -51,19 +52,39 @@ export default function Discounts() {
 
   useEffect(() => { fetchDiscounts(); }, []);
 
+  // Reset modal form
   const resetForm = () => {
-    setFormData({ discount_name: '', discount_type: 'percentage', discount_value: '', description: '', is_active: true, requires_verification: false });
+    setFormData({
+      discount_name: '',
+      discount_type: 'percentage',
+      discount_value: '',
+      description: '',
+      is_active: true,
+      requires_verification: false
+    });
     setFieldErrors({});
     setFormError('');
     setSuccessMessage('');
   };
 
-  const openAddModal = () => { resetForm(); setEditMode(false); setEditingDiscount(null); setShowModal(true); };
+  const openAddModal = () => {
+    resetForm();
+    setEditMode(false);
+    setEditingDiscount(null);
+    setShowModal(true);
+  };
 
   const openEditModal = (discount) => {
     setEditMode(true);
     setEditingDiscount(discount);
-    setFormData({ discount_name: discount.discount_name, discount_type: discount.discount_type, discount_value: discount.discount_value, description: discount.description || '', is_active: discount.is_active, requires_verification: discount.requires_verification });
+    setFormData({
+      discount_name: discount.discount_name,
+      discount_type: discount.discount_type,
+      discount_value: discount.discount_value,
+      description: discount.description || '',
+      is_active: discount.is_active,
+      requires_verification: discount.requires_verification
+    });
     setFieldErrors({});
     setFormError('');
     setSuccessMessage('');
@@ -72,8 +93,13 @@ export default function Discounts() {
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-    if (fieldErrors[name]) setFieldErrors(prev => ({ ...prev, [name]: '' }));
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: '' }));
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -82,13 +108,31 @@ export default function Discounts() {
     setFormError('');
     setFieldErrors({});
 
-    if (!formData.discount_name.trim()) { setFormError('Discount name is required'); setSubmitting(false); return; }
-    if (!formData.discount_type.trim()) { setFormError('Discount type is required'); setSubmitting(false); return; }
-    if (formData.discount_value === '' || isNaN(parseFloat(formData.discount_value)) || parseFloat(formData.discount_value) < 0) {
-      setFormError('Discount value must be a positive number'); setSubmitting(false); return;
+    // Basic front‑end validation
+    if (!formData.discount_name.trim()) {
+      setFormError('Discount name is required');
+      setSubmitting(false);
+      return;
+    }
+    if (!formData.discount_type.trim()) {
+      setFormError('Discount type is required');
+      setSubmitting(false);
+      return;
+    }
+    if (
+      formData.discount_value === '' ||
+      isNaN(parseFloat(formData.discount_value)) ||
+      parseFloat(formData.discount_value) < 0
+    ) {
+      setFormError('Discount value must be a positive number');
+      setSubmitting(false);
+      return;
     }
 
-    const payload = { ...formData, discount_value: parseFloat(formData.discount_value) };
+    const payload = {
+      ...formData,
+      discount_value: parseFloat(formData.discount_value)
+    };
 
     try {
       if (editMode && editingDiscount) {
@@ -99,12 +143,22 @@ export default function Discounts() {
         setSuccessMessage('Discount created successfully!');
       }
       await fetchDiscounts();
-      setTimeout(() => { setShowModal(false); resetForm(); setSuccessMessage(''); }, 1200);
+      setTimeout(() => {
+        setShowModal(false);
+        resetForm();
+        setSuccessMessage('');
+      }, 1200);
     } catch (err) {
       console.error('Save error:', err);
       if (err.response?.status === 422 && err.response?.data?.errors) {
         setFieldErrors(err.response.data.errors);
         setFormError('Please correct the errors below.');
+      } else if (err.response?.status === 409) {
+        // Duplicate discount – backend returns 409 when name/type/value are identical
+        setFormError(
+          err.response.data.message ||
+          'Duplicate discount detected. A discount with this name, type and value already exists.'
+        );
       } else if (err.response?.data?.message) {
         setFormError(err.response.data.message);
       } else {
@@ -129,15 +183,22 @@ export default function Discounts() {
     try {
       await axios.put(`/discounts/${id}`, { is_active: !currentActive });
       await fetchDiscounts();
-    } catch (err) { console.error('Toggle failed:', err); }
+    } catch (err) {
+      console.error('Toggle failed:', err);
+    }
   };
 
   if (loading) {
     return (
-      <div style={{ background: CREAM, minHeight: '100vh' }} className="flex justify-center items-center h-64">
+      <div
+        style={{ background: CREAM, minHeight: '100vh' }}
+        className="flex justify-center items-center h-64"
+      >
         <div className="flex flex-col items-center gap-3">
           <Loader className="animate-spin" style={{ color: SAGE }} size={36} />
-          <p style={{ color: MUTED_GRAY, fontSize: '0.85rem', letterSpacing: '0.05em' }}>Loading discounts...</p>
+          <p style={{ color: MUTED_GRAY, fontSize: '0.85rem', letterSpacing: '0.05em' }}>
+            Loading discounts...
+          </p>
         </div>
       </div>
     );
@@ -145,7 +206,10 @@ export default function Discounts() {
 
   if (error) {
     return (
-      <div className="p-4 rounded-2xl flex items-center gap-3 m-6" style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
+      <div
+        className="p-4 rounded-2xl flex items-center gap-3 m-6"
+        style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}
+      >
         <AlertCircle size={20} />
         <span>Error loading discounts: {error}</span>
       </div>
@@ -373,7 +437,8 @@ export default function Discounts() {
                     }}>
                       {discount.discount_type === 'percentage'
                         ? `${discount.discount_value}%`
-                        : `₱${parseFloat(discount.discount_value).toLocaleString()}`}
+                        : `₱${parseFloat(discount.discount_value).toLocaleString()}`
+                      }
                     </span>
                     <span style={{
                       fontSize: '0.72rem', fontWeight: 600,
@@ -627,7 +692,8 @@ export default function Discounts() {
                   {submitting && <Loader size={15} className="animate-spin" />}
                   {submitting
                     ? (editMode ? 'Updating…' : 'Creating…')
-                    : (editMode ? 'Update Discount' : 'Create Discount')}
+                    : (editMode ? 'Update Discount' : 'Create Discount')
+                  }
                 </button>
               </div>
             </form>

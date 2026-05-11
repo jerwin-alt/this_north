@@ -1,8 +1,9 @@
+// web/src/pages/Ingredients.jsx
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
 import {
   Plus, Edit2, Trash2, X, Package, AlertCircle,
-  Loader, Box, CheckCircle, XCircle
+  Loader, Box, ArrowUpCircle
 } from 'lucide-react';
 
 // Color palette
@@ -16,7 +17,7 @@ export default function Ingredients() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Modal state
+  // ── Add/Edit Modal state ──
   const [showModal, setShowModal] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editingIngredient, setEditingIngredient] = useState(null);
@@ -24,7 +25,7 @@ export default function Ingredients() {
   const [formError, setFormError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
 
-  // Form data
+  // Form data for add/edit
   const [formData, setFormData] = useState({
     name: '',
     unit: '',
@@ -32,6 +33,17 @@ export default function Ingredients() {
     current_stock: 0,
     is_active: true,
   });
+
+  // ── Adjust Stock Modal state ──
+  const [showStockModal, setShowStockModal] = useState(false);
+  const [stockIngredient, setStockIngredient] = useState(null);
+  const [stockForm, setStockForm] = useState({
+    transaction_type: 'purchase',
+    quantity: '',
+    notes: ''
+  });
+  const [stockSubmitting, setStockSubmitting] = useState(false);
+  const [stockError, setStockError] = useState('');
 
   // Fetch all ingredients
   const fetchIngredients = async () => {
@@ -58,7 +70,7 @@ export default function Ingredients() {
     fetchIngredients();
   }, []);
 
-  // Reset modal form
+  // ── Add/Edit Handlers (unchanged except we keep is_active for form but won't display in table) ──
   const resetForm = () => {
     setFormData({
       name: '',
@@ -145,6 +157,46 @@ export default function Ingredients() {
     }
   };
 
+  // ── Adjust Stock Handlers ──
+  const openAdjustStock = (ingredient) => {
+    setStockIngredient(ingredient);
+    setStockForm({
+      transaction_type: 'purchase',
+      quantity: '',
+      notes: ''
+    });
+    setStockError('');
+    setShowStockModal(true);
+  };
+
+  const handleStockSubmit = async (e) => {
+    e.preventDefault();
+    if (!stockForm.quantity || parseFloat(stockForm.quantity) <= 0) {
+      setStockError('Quantity must be a positive number');
+      return;
+    }
+
+    setStockSubmitting(true);
+    setStockError('');
+
+    try {
+      await axios.post(`/ingredients/${stockIngredient.id}/adjust-stock`, {
+        transaction_type: stockForm.transaction_type,
+        quantity: parseFloat(stockForm.quantity),
+        notes: stockForm.notes
+      });
+
+      await fetchIngredients();
+      setShowStockModal(false);
+      setStockIngredient(null);
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Stock adjustment failed';
+      setStockError(msg);
+    } finally {
+      setStockSubmitting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ background: CREAM, minHeight: '100vh' }} className="flex justify-center items-center h-64">
@@ -198,8 +250,7 @@ export default function Ingredients() {
 
       <div className="grain-overlay" />
 
-      <div className="max-w-7xl mx-auto" style={{ position: 'relative', zIndex: 1 }}>
-
+      <div className="max-w-7xl mx-auto relative" style={{ zIndex: 1 }}>
         {/* ── Header ── */}
         <div className="anim-up flex flex-wrap justify-between items-start gap-4 mb-8">
           <div>
@@ -239,14 +290,11 @@ export default function Ingredients() {
         <div className="divider-line mb-7" />
 
         {/* ── Table Card ── */}
-        <div
-          className="anim-up-delay rounded-2xl overflow-hidden"
-          style={{
-            background: '#fff',
-            border: '1.5px solid rgba(242,237,228,0.9)',
-            boxShadow: '0 4px 24px rgba(79,95,82,0.07)',
-          }}
-        >
+        <div className="anim-up-delay rounded-2xl overflow-hidden" style={{
+          background: '#fff',
+          border: '1.5px solid rgba(242,237,228,0.9)',
+          boxShadow: '0 4px 24px rgba(79,95,82,0.07)',
+        }}>
           <div className="overflow-x-auto">
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <thead>
@@ -254,20 +302,18 @@ export default function Ingredients() {
                   background: `linear-gradient(135deg, rgba(242,237,228,0.9), rgba(255,243,217,0.4))`,
                   borderBottom: '1.5px solid rgba(242,237,228,1)',
                 }}>
-                  {['ID', 'Name', 'Unit', 'Scale / Unit', 'Current Stock', 'Status', 'Actions'].map((h, i) => (
-                    <th
-                      key={h}
-                      style={{
-                        padding: '14px 20px',
-                        textAlign: i === 6 ? 'right' : 'left',
-                        fontSize: '0.68rem',
-                        fontWeight: 700,
-                        letterSpacing: '0.08em',
-                        textTransform: 'uppercase',
-                        color: SAGE,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
+                  {/* Removed “Status” column */}
+                  {['ID', 'Name', 'Unit', 'Scale / Unit', 'Current Stock', 'Actions'].map((h, i) => (
+                    <th key={h} style={{
+                      padding: '14px 20px',
+                      textAlign: i === 5 ? 'right' : 'left',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      color: SAGE,
+                      whiteSpace: 'nowrap',
+                    }}>
                       {h}
                     </th>
                   ))}
@@ -276,7 +322,7 @@ export default function Ingredients() {
               <tbody>
                 {ingredients.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ textAlign: 'center', padding: '64px 24px' }}>
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '64px 24px' }}>
                       <div style={{
                         width: 64, height: 64,
                         background: 'rgba(166,162,154,0.1)',
@@ -292,13 +338,9 @@ export default function Ingredients() {
                   </tr>
                 ) : (
                   ingredients.map((ing, idx) => (
-                    <tr
-                      key={ing.id}
-                      className="table-row-hover"
-                      style={{
-                        borderBottom: idx < ingredients.length - 1 ? '1px solid rgba(242,237,228,0.8)' : 'none',
-                      }}
-                    >
+                    <tr key={ing.id} className="table-row-hover" style={{
+                      borderBottom: idx < ingredients.length - 1 ? '1px solid rgba(242,237,228,0.8)' : 'none',
+                    }}>
                       {/* ID */}
                       <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
                         <span style={{
@@ -351,14 +393,11 @@ export default function Ingredients() {
 
                       {/* Current stock */}
                       <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
-                        <span
-                          className={ing.current_stock > 0 ? 'stock-pill-ok' : 'stock-pill-empty'}
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                            padding: '3px 10px', borderRadius: 8,
-                            fontSize: '0.75rem', fontWeight: 700,
-                          }}
-                        >
+                        <span className={ing.current_stock > 0 ? 'stock-pill-ok' : 'stock-pill-empty'} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '3px 10px', borderRadius: 8,
+                          fontSize: '0.75rem', fontWeight: 700,
+                        }}>
                           <span style={{
                             width: 6, height: 6, borderRadius: '50%',
                             background: ing.current_stock > 0 ? '#34d468' : '#ef4444',
@@ -368,38 +407,21 @@ export default function Ingredients() {
                         </span>
                       </td>
 
-                      {/* Status */}
-                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 5,
-                          padding: '3px 10px', borderRadius: 999,
-                          fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.04em',
-                          background: ing.is_active
-                            ? `linear-gradient(135deg, ${SAGE}22, ${SAGE}10)`
-                            : 'rgba(166,162,154,0.12)',
-                          color: ing.is_active ? SAGE : MUTED_GRAY,
-                          border: `1.5px solid ${ing.is_active ? SAGE + '30' : 'rgba(166,162,154,0.25)'}`,
-                        }}>
-                          <span style={{
-                            width: 6, height: 6, borderRadius: '50%',
-                            background: ing.is_active ? '#34d468' : MUTED_GRAY,
-                            display: 'inline-block',
-                          }} />
-                          {ing.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-
-                      {/* Actions */}
+                      {/* Actions – now includes Adjust Stock, Edit, Delete */}
                       <td style={{ padding: '14px 20px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
                           <button
+                            onClick={() => openAdjustStock(ing)}
+                            className="action-btn"
+                            style={{ padding: '7px', color: '#0d9488', background: 'rgba(13,148,136,0.1)' }}
+                            title="Adjust stock"
+                          >
+                            <ArrowUpCircle size={14} strokeWidth={2} />
+                          </button>
+                          <button
                             onClick={() => openEditModal(ing)}
                             className="action-btn"
-                            style={{
-                              padding: '7px',
-                              color: SAGE,
-                              background: 'rgba(79,95,82,0.08)',
-                            }}
+                            style={{ padding: '7px', color: SAGE, background: 'rgba(79,95,82,0.08)' }}
                             title="Edit ingredient"
                           >
                             <Edit2 size={14} strokeWidth={2} />
@@ -407,11 +429,7 @@ export default function Ingredients() {
                           <button
                             onClick={() => deleteIngredient(ing.id, ing.name)}
                             className="action-btn"
-                            style={{
-                              padding: '7px',
-                              color: '#EF4444',
-                              background: 'rgba(239,68,68,0.07)',
-                            }}
+                            style={{ padding: '7px', color: '#EF4444', background: 'rgba(239,68,68,0.07)' }}
                             title="Delete ingredient"
                           >
                             <Trash2 size={14} strokeWidth={2} />
@@ -427,7 +445,7 @@ export default function Ingredients() {
         </div>
       </div>
 
-      {/* ══ Add/Edit Modal ══ */}
+      {/* ══ Add/Edit Modal (unchanged) ══ */}
       {showModal && (
         <div style={{
           position: 'fixed', inset: 0,
@@ -435,17 +453,14 @@ export default function Ingredients() {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           zIndex: 50, padding: 16, backdropFilter: 'blur(4px)',
         }}>
-          <div
-            className="anim-modal"
-            style={{
-              background: '#fff',
-              borderRadius: 22,
-              width: '100%', maxWidth: 460,
-              boxShadow: '0 24px 60px rgba(79,95,82,0.18), 0 4px 16px rgba(0,0,0,0.08)',
-              border: '1px solid rgba(242,237,228,0.8)',
-              overflow: 'hidden',
-            }}
-          >
+          <div className="anim-modal" style={{
+            background: '#fff',
+            borderRadius: 22,
+            width: '100%', maxWidth: 460,
+            boxShadow: '0 24px 60px rgba(79,95,82,0.18), 0 4px 16px rgba(0,0,0,0.08)',
+            border: '1px solid rgba(242,237,228,0.8)',
+            overflow: 'hidden',
+          }}>
             {/* Modal header */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -467,19 +482,15 @@ export default function Ingredients() {
                   {editMode ? 'Edit Ingredient' : 'New Ingredient'}
                 </h3>
               </div>
-              <button
-                onClick={() => setShowModal(false)}
-                style={{
-                  color: MUTED_GRAY, padding: 7, borderRadius: 10,
-                  transition: 'all 0.15s', background: 'transparent', border: 'none', cursor: 'pointer',
-                }}
-                onMouseEnter={e => e.currentTarget.style.background = CREAM}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
+              <button onClick={() => setShowModal(false)} style={{
+                color: MUTED_GRAY, padding: 7, borderRadius: 10,
+                transition: 'all 0.15s', background: 'transparent', border: 'none', cursor: 'pointer',
+              }} onMouseEnter={e => e.currentTarget.style.background = CREAM} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <X size={19} />
               </button>
             </div>
 
+            {/* Form */}
             <form onSubmit={handleSubmit} style={{ padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
               {formError && (
                 <div style={{
@@ -490,112 +501,135 @@ export default function Ingredients() {
                   <AlertCircle size={15} /> {formError}
                 </div>
               )}
-
-              {/* Name */}
+              {/* fields: Name, Unit, Scale per Unit, Current Stock, Active checkbox */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                  Name *
-                </label>
-                <input
-                  type="text" name="name" value={formData.name}
-                  onChange={handleInputChange} required
-                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all"
-                  style={{
-                    borderColor: fieldErrors.name ? '#EF4444' : 'rgba(166,162,154,0.3)',
-                    color: SAGE, background: '#fafafa',
-                  }}
-                />
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Name *</label>
+                <input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: fieldErrors.name ? '#EF4444' : 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
                 {fieldErrors.name && <p style={{ color: '#EF4444', fontSize: '0.72rem', marginTop: 4 }}>{fieldErrors.name[0]}</p>}
               </div>
-
-              {/* Unit */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                  Unit *
-                </label>
-                <input
-                  type="text" name="unit" value={formData.unit}
-                  onChange={handleInputChange} required
-                  placeholder="e.g., kg, pcs, liters"
-                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all"
-                  style={{
-                    borderColor: fieldErrors.unit ? '#EF4444' : 'rgba(166,162,154,0.3)',
-                    color: SAGE, background: '#fafafa',
-                  }}
-                />
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Unit *</label>
+                <input type="text" name="unit" value={formData.unit} onChange={handleInputChange} required placeholder="e.g., kg, pcs, liters" className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: fieldErrors.unit ? '#EF4444' : 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
                 {fieldErrors.unit && <p style={{ color: '#EF4444', fontSize: '0.72rem', marginTop: 4 }}>{fieldErrors.unit[0]}</p>}
               </div>
-
-              {/* Scale per unit */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                  Scale per Unit <span style={{ color: MUTED_GRAY, fontWeight: 400, textTransform: 'none', fontSize: '0.68rem' }}>(optional)</span>
-                </label>
-                <input
-                  type="text" name="scale_per_uni" value={formData.scale_per_uni}
-                  onChange={handleInputChange}
-                  placeholder="e.g., per bag, per box"
-                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all"
-                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
-                />
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Scale per Unit <span style={{ color: MUTED_GRAY, fontWeight: 400, textTransform: 'none', fontSize: '0.68rem' }}>(optional)</span></label>
+                <input type="text" name="scale_per_uni" value={formData.scale_per_uni} onChange={handleInputChange} placeholder="e.g., per bag, per box" className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
               </div>
-
-              {/* Current stock */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                  Current Stock
-                </label>
-                <input
-                  type="number" step="0.01" name="current_stock"
-                  value={formData.current_stock}
-                  onChange={handleInputChange}
-                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm transition-all"
-                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
-                />
-                <p style={{ color: MUTED_GRAY, fontSize: '0.7rem', marginTop: 5 }}>
-                  Initial quantity — adjustable later.
-                </p>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Current Stock</label>
+                <input type="number" step="0.01" name="current_stock" value={formData.current_stock} onChange={handleInputChange} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
+                <p style={{ color: MUTED_GRAY, fontSize: '0.7rem', marginTop: 5 }}>Initial quantity — adjustable later.</p>
               </div>
-
-              {/* Active checkbox */}
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-                <input
-                  type="checkbox" name="is_active"
-                  checked={formData.is_active}
-                  onChange={handleInputChange}
-                  id="is_active"
-                  className="checkbox-custom"
-                  style={{ width: 16, height: 16, borderRadius: 4 }}
-                />
+                <input type="checkbox" name="is_active" checked={formData.is_active} onChange={handleInputChange} id="is_active" className="checkbox-custom" style={{ width: 16, height: 16, borderRadius: 4 }} />
                 <span style={{ fontSize: '0.85rem', color: SAGE, fontWeight: 500 }}>
                   Active <span style={{ color: MUTED_GRAY, fontWeight: 400 }}>(available for use)</span>
                 </span>
               </label>
 
-              {/* Divider */}
               <div className="divider-line" />
-
-              {/* Actions */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium"
-                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: MUTED_GRAY, background: 'transparent' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="primary-btn flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-50"
-                  style={{ background: `linear-gradient(135deg, ${SAGE}, #3e4c42)` }}
-                >
+                <button type="button" onClick={() => setShowModal(false)} className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium" style={{ borderColor: 'rgba(166,162,154,0.3)', color: MUTED_GRAY, background: 'transparent' }}>Cancel</button>
+                <button type="submit" disabled={submitting} className="primary-btn flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-50" style={{ background: `linear-gradient(135deg, ${SAGE}, #3e4c42)` }}>
                   {submitting && <Loader size={15} className="animate-spin" />}
-                  {submitting
-                    ? (editMode ? 'Updating…' : 'Creating…')
-                    : (editMode ? 'Update Ingredient' : 'Create Ingredient')
-                  }
+                  {submitting ? (editMode ? 'Updating…' : 'Creating…') : (editMode ? 'Update Ingredient' : 'Create Ingredient')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Adjust Stock Modal ══ */}
+      {showStockModal && stockIngredient && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(30,35,30,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 50, padding: 16, backdropFilter: 'blur(4px)',
+        }}>
+          <div className="anim-modal" style={{
+            background: '#fff',
+            borderRadius: 22,
+            width: '100%', maxWidth: 420,
+            boxShadow: '0 24px 60px rgba(79,95,82,0.18), 0 4px 16px rgba(0,0,0,0.08)',
+            border: '1px solid rgba(242,237,228,0.8)',
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '20px 24px',
+              borderBottom: `1px solid ${CREAM}`,
+              background: `linear-gradient(135deg, rgba(79,95,82,0.04), rgba(255,243,217,0.3))`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 34, height: 34,
+                  background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                  borderRadius: 10,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <ArrowUpCircle size={16} color="#fff" />
+                </div>
+                <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.05rem' }}>
+                  Adjust Stock: {stockIngredient.name}
+                </h3>
+              </div>
+              <button onClick={() => setShowStockModal(false)} style={{ color: MUTED_GRAY, padding: 7, borderRadius: 10, transition: 'all 0.15s', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                <X size={19} />
+              </button>
+            </div>
+
+            <form onSubmit={handleStockSubmit} style={{ padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {stockError && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderRadius: 12, fontSize: '0.82rem', background: '#FEF2F2', color: '#DC2626', border: '1px solid #FEE2E2' }}>
+                  <AlertCircle size={15} /> {stockError}
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Transaction Type *</label>
+                <select
+                  value={stockForm.transaction_type}
+                  onChange={(e) => setStockForm({ ...stockForm, transaction_type: e.target.value })}
+                  required
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                >
+                  <option value="purchase">Purchase (add)</option>
+                  <option value="usage">Usage (subtract)</option>
+                  <option value="adjustment">Adjustment (add)</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Quantity *</label>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={stockForm.quantity}
+                  onChange={(e) => setStockForm({ ...stockForm, quantity: e.target.value })}
+                  placeholder="0.00"
+                  required
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Notes</label>
+                <textarea
+                  value={stockForm.notes}
+                  onChange={(e) => setStockForm({ ...stockForm, notes: e.target.value })}
+                  rows={2}
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm resize-none"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                />
+              </div>
+
+              <div className="divider-line" />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button type="button" onClick={() => setShowStockModal(false)} className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium" style={{ borderColor: 'rgba(166,162,154,0.3)', color: MUTED_GRAY }}>Cancel</button>
+                <button type="submit" disabled={stockSubmitting} className="primary-btn flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-50" style={{ background: `linear-gradient(135deg, ${SAGE}, #3e4c42)` }}>
+                  {stockSubmitting ? <Loader size={15} className="animate-spin" /> : 'Adjust Stock'}
                 </button>
               </div>
             </form>

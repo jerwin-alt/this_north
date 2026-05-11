@@ -11,6 +11,7 @@ use App\Http\Controllers\AdminOrderController;
 use App\Http\Controllers\StaffOrderController;
 use App\Http\Controllers\StaffPaymentController;
 use App\Http\Controllers\DiscountController;
+use App\Http\Controllers\CustomerOrderController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -29,6 +30,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // FIXED: use() → user()
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
+
+        // Customer endpoints
+    Route::get('/customer/orders', [CustomerOrderController::class, 'index']);
+    Route::get('/customer/stats', [CustomerOrderController::class, 'stats']);
+
+    Route::post('/customer/orders', [CustomerOrderController::class, 'store']);
+
+
+
 });
 
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
@@ -91,9 +101,24 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
 
 
 
+     
         // Admin Order Management
     Route::get('/admin/orders', [AdminOrderController::class, 'index']);
     Route::put('/admin/orders/{id}/schedule', [AdminOrderController::class, 'updateSchedule']);
+    Route::put('/admin/orders/{id}/approve', [AdminOrderController::class, 'approve']);    // new
+    Route::put('/admin/orders/{id}/reject', [AdminOrderController::class, 'reject']);      // new
+    Route::get('/admin/schedule', [AdminOrderController::class, 'byDate']);                // calendar data
+
+
+
+        // SKU preview
+    Route::get('/admin/next-sku', [AdminMenuController::class, 'getNextSku']);
+
+
+    // Customer management
+    Route::get('/admin/customers',                [AdminUserController::class, 'getCustomers']);
+    Route::patch('/admin/customers/{id}/approve', [AdminUserController::class, 'approveCustomer']);
+    Route::patch('/admin/customers/{id}/reject',  [AdminUserController::class, 'rejectCustomer']);
 });
 
 /*
@@ -110,6 +135,31 @@ Route::get('/staff', [AdminUserController::class, 'getStaffUsers']);
 Route::get('/menu', function () {
     $menu = \App\Models\Menu::where('is_active', true)->get();
     return response()->json(['products' => $menu]);
+});
+
+Route::get('/menu', function (Request $request) {
+    $query = \App\Models\Menu::where('is_active', true);
+    
+    // Filter by category if provided
+    if ($request->filled('category')) {
+        $query->where('category_id', $request->category);
+    }
+    
+    $menu = $query->get();
+    
+    // Load drink sizes and cake flavors for each product
+    $menu->load('drinkSizes');
+    
+    return response()->json(['products' => $menu]);
+});
+
+
+Route::get('/cake-sizes', function () {
+    return \App\Models\CakeSize::where('is_active', true)->get();
+});
+
+Route::get('/cake-flavors', function () {
+    return \App\Models\CakeFlavor::where('is_active', true)->get();
 });
 
 
@@ -130,6 +180,9 @@ Route::middleware(['auth:sanctum', 'staff'])->prefix('staff')->group(function ()
 
         // Staff discount list (read‑only)
     Route::get('discounts', [DiscountController::class, 'staffIndex']);
+
+    // Staff schedule view (read-only)
+    Route::get('schedule', [AdminOrderController::class, 'byDate']);
 
     // Route::get('orders', [App\Http\Controllers\StaffOrderController::class, 'index']);
     // Route::get('orders/{id}', [App\Http\Controllers\StaffOrderController::class, 'show']);
