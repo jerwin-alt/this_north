@@ -1,4 +1,4 @@
-// src/pages/Products.jsx
+
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
 import { motion, AnimatePresence } from 'framer-motion';

@@ -5,7 +5,7 @@ import {
   Loader, CheckCircle, Info
 } from 'lucide-react';
 
-// Color palette
+
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
 const MUTED_GRAY = '#A6A29A';

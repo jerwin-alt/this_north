@@ -46,12 +46,6 @@ createRoot(document.getElementById('root')).render(
           <Route path="reports" element={<Reports />} />
           <Route path="schedule" element={<AdminSchedule />} />
 
-          {/* You will add other routes here later */}
-          {/* <Route path="orders" element={<Orders />} /> */}
-          {/* <Route path="inventory" element={<Inventory />} /> */}
-          {/* <Route path="reports" element={<Reports />} /> */}
-          {/* <Route path="discounts" element={<Discounts />} /> */}
-          {/* <Route path="settings" element={<Settings />} /> */}
         </Route>
 
           <Route path="/pages/staff-dashboard" element={<StaffDashboard />}>
@@ -61,7 +55,6 @@ createRoot(document.getElementById('root')).render(
             <Route path="products" element={<StaffProducts />} />
             <Route path="schedule" element={<StaffSchedule />} />
 
-          {/* other staff sub‑routes if needed later */}
         </Route>
 
       </Routes>

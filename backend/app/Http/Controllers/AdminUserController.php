@@ -12,7 +12,7 @@ class AdminUserController extends Controller
     // ---------- EXISTING METHODS (keep them) ----------
     public function getAllUsers()
     {
-        $users = User::all();
+        $users = User::whereIn('role', ['admin', 'staff'])->get(); 
         return response()->json([
             'users'   => $users,
             'count'   => $users->count(),

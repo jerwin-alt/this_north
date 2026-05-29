@@ -1,4 +1,4 @@
-// web/src/pages/Inventory.jsx
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from '/api/axios';
 import {

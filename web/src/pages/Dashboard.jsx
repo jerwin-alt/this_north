@@ -9,10 +9,10 @@ import {
 const menuItems = [
   { name: 'Overview', icon: LayoutDashboard, path: '/pages/dashboard' },
   { name: 'Users', icon: Users, path: '/pages/dashboard/users' },
-  { name: 'Customers', icon: UserCheck, path: '/pages/dashboard/customers' }, // new
+  { name: 'Customers', icon: UserCheck, path: '/pages/dashboard/customers' }, 
   { name: 'Products', icon: Package, path: '/pages/dashboard/products' },
   { name: 'Ingredients', icon: Box, path: '/pages/dashboard/ingredients' },
-  { name: 'Orders', icon: ShoppingBag, path: '/pages/dashboard/orders' }, // ← new
+  { name: 'Orders', icon: ShoppingBag, path: '/pages/dashboard/orders' }, 
   { name: 'Discounts', icon: Percent, path: '/pages/dashboard/discounts' },
   { name: 'Schedule', icon: Calendar, path: '/pages/dashboard/schedule' },
   { name: 'Inventory', icon: Package, path: '/pages/dashboard/inventory' },

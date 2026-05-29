@@ -64,7 +64,7 @@ interface Order {
 const getImageUrl = (url: string | undefined): string | undefined => {
   if (!url) return undefined;
   if (url.startsWith("http")) return url;
-  return `http://10.95.250.170:8000${url}`;
+  return `http://127.0.0.1:8000${url}`;
 };
 
 // ── Small reusable status badge ──────────────────

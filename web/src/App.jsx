@@ -3,7 +3,7 @@ import { Eye, EyeOff, Cake, Loader2 } from 'lucide-react';
 import { useAuth } from './contexts/auth-context';
 import { useNavigate } from 'react-router-dom';
 
-// Color palette
+// Color palette (unchanged)
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
 const MUTED_GRAY = '#A6A29A';
@@ -91,8 +91,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex overflow-hidden">
-      {/* Left decorative panel – enhanced with cake icons */}
-      <div className="hidden lg:flex lg:w-3/5 relative" style={{ background: SAGE }}>
+      {/* Left decorative panel – now w-1/2 to match right side */}
+      <div 
+        className="hidden lg:flex lg:w-1/2 relative" 
+        style={{ 
+          backgroundImage: `url('/background_northckase2.jpg')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center'
+        }}
+      >
         <div className="absolute inset-0 overflow-hidden opacity-10">
           {Array.from({ length: 12 }).map((_, i) => (
             <Cake
@@ -107,12 +114,11 @@ export default function App() {
             />
           ))}
         </div>
+        {/* Gradient overlay remains for readability */}
         <div className="absolute inset-0 bg-gradient-to-r" style={{ background: `linear-gradient(to right, ${SAGE}95, ${SAGE}60)` }} />
         <div className="absolute bottom-14 left-14 text-white">
-          <div className="flex items-center gap-3 mb-4" style={{ animation: 'fadeSlideUp 0.6s 0.3s both' }}>
-            <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
-              <Cake className="w-8 h-8 text-white" />
-            </div>
+          {/* REMOVED the logo div here - now only the heading */}
+          <div className="mb-4" style={{ animation: 'fadeSlideUp 0.6s 0.3s both' }}>
             <h1 className="text-5xl font-bold" style={{ color: '#69ce73' }}>North Cakes CDO</h1>
           </div>
           <p className="text-xl text-white/75 ml-1" style={{ animation: 'fadeSlideUp 0.6s 0.45s both' }}>Operational Management System</p>
@@ -126,12 +132,16 @@ export default function App() {
         </div>
       </div>
 
-      {/* Right side – login form */}
-      <div className="flex-1 flex items-center justify-center p-8 overflow-y-auto" style={{ background: CREAM }}>
+      {/* Right side – login form, now w-1/2 to match left side */}
+      <div className="flex-1 lg:w-1/2 flex items-center justify-center p-8 overflow-y-auto" style={{ background: CREAM }}>
         <div className="w-full max-w-md" style={{ animation: 'fadeSlideRight 0.5s 0.2s both' }}>
           <div className="text-center mb-10">
-            <div className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg" style={{ background: SAGE }}>
-              <Cake className="w-10 h-10 text-white" />
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-lg overflow-hidden" style={{ background: SAGE }}>
+              <img 
+                src="/northcakes_logo.jpg" 
+                alt="North Cakes Logo" 
+                className="w-full h-full object-cover"
+              />
             </div>
             <h2 className="text-3xl font-bold" style={{ color: SAGE }}>Welcome Back</h2>
             <p className="mt-2" style={{ color: MUTED_GRAY }}>Sign in to manage your pastry shop</p>

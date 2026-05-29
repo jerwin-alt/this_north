@@ -1,4 +1,4 @@
-// web/src/pages/Ingredients.jsx
+
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
 import {
@@ -6,7 +6,7 @@ import {
   Loader, Box, ArrowUpCircle
 } from 'lucide-react';
 
-// Color palette
+
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
 const MUTED_GRAY = '#A6A29A';

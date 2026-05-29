@@ -1,4 +1,4 @@
-// src/pages/dashboard/DashboardOverview.tsx
+
 import React from 'react';
 import {
   ShoppingBag, DollarSign, Clock, AlertTriangle,
