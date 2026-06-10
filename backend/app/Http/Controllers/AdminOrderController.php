@@ -17,22 +17,37 @@ class AdminOrderController extends Controller
     public function index(Request $request)
     {
         $query = Order::with(['items.menu:id,name,base_price,menu_type', 'customer:id,first_name,last_name,phone'])
-            ->whereNotNull('pickup_date')   // only orders with schedule
+            ->whereNotNull('pickup_date')
             ->orderBy('pickup_date')
             ->orderBy('pickup_time');
 
+        // ----- Status filter (supports comma‑separated string) -----
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $statuses = is_array($request->status)
+                ? $request->status
+                : explode(',', $request->status);
+            $query->whereIn('status', $statuses);
         }
+
+        // ----- Search -----
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('order_number', 'like', "%{$search}%")
-                  ->orWhere('customer_name', 'like', "%{$search}%");
+                ->orWhere('customer_name', 'like', "%{$search}%");
             });
         }
 
-        $orders = $query->paginate(50); // paginate for calendar performance
+        // ----- Schedule‑specific modifications -----
+        if ($request->boolean('for_schedule')) {
+            // 1. Exclude walk‑in orders (customer_id must NOT be null)
+            $query->whereNotNull('customer_id');
+            // 2. No pagination – return all matching orders
+            $orders = $query->get();
+        } else {
+            // Regular admin orders list – keep pagination and include walk‑ins
+            $orders = $query->paginate(50);
+        }
 
         return response()->json([
             'orders' => $orders,
@@ -48,7 +63,20 @@ class AdminOrderController extends Controller
      */
     public function approve($id)
     {
+        // $order = Order::with('items.menu')->findOrFail($id);
+        // if ($order->status !== 'pending') {
+        //     return response()->json(['message' => 'Only pending orders can be approved'], 422);
+        // }
+
         $order = Order::with('items.menu')->findOrFail($id);
+
+        // Walk‑in orders (no customer) are automatically valid
+        if ($order->customer_id === null) {
+            return response()->json([
+                'message' => 'Walk‑in orders are already confirmed and cannot be approved by admin.'
+            ], 403);
+        }
+
         if ($order->status !== 'pending') {
             return response()->json(['message' => 'Only pending orders can be approved'], 422);
         }
@@ -104,7 +132,19 @@ class AdminOrderController extends Controller
      */
     public function reject($id)
     {
+        // $order = Order::findOrFail($id);
+        // if (!in_array($order->status, ['pending', 'confirmed'])) {
+        //     return response()->json(['message' => 'Only pending or confirmed orders can be rejected'], 422);
+        // }
+
         $order = Order::findOrFail($id);
+
+        if ($order->customer_id === null) {
+            return response()->json([
+                'message' => 'Walk‑in orders cannot be rejected by admin.'
+            ], 403);
+        }
+
         if (!in_array($order->status, ['pending', 'confirmed'])) {
             return response()->json(['message' => 'Only pending or confirmed orders can be rejected'], 422);
         }
@@ -132,8 +172,9 @@ class AdminOrderController extends Controller
     {
         $date = $request->input('date');
         $orders = Order::with(['items.menu:id,name,base_price'])
-            ->where('pickup_date', $date)
+            ->whereDate('pickup_date', $date)
             ->whereIn('status', ['confirmed', 'preparing', 'ready'])
+            ->whereNotNull('customer_id')   // ← exclude walk‑ins
             ->orderBy('pickup_time')
             ->get();
 
@@ -150,6 +191,14 @@ class AdminOrderController extends Controller
     public function updateSchedule(Request $request, $id)
     {
         $order = Order::findOrFail($id);
+
+        // 🚫 Walk‑in orders (no customer) are managed by staff, not admin
+        if ($order->customer_id === null) {
+            return response()->json([
+                'message' => 'Pickup schedule for walk‑in orders is managed by staff, not admin.'
+            ], 403);
+        }
+
         $validated = $request->validate([
             'pickup_date' => 'required|date|after_or_equal:today',
             'pickup_time' => 'required|date_format:H:i:s',

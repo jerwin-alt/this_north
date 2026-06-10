@@ -45,12 +45,17 @@ export default function Orders() {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
-  const extractOrdersArray = (responseData) => {
-    if (Array.isArray(responseData)) return responseData;
-    if (responseData?.data && Array.isArray(responseData.data)) return responseData.data;
-    if (responseData?.orders && Array.isArray(responseData.orders)) return responseData.orders;
-    return [];
-  };
+const extractOrdersArray = (responseData) => {
+  if (Array.isArray(responseData)) return responseData;
+  // If responseData.data is an array (direct array of orders)
+  if (responseData?.data && Array.isArray(responseData.data)) return responseData.data;
+  // If responseData.orders exists (paginator), take orders.data
+  if (responseData?.orders) {
+    if (Array.isArray(responseData.orders)) return responseData.orders;
+    if (responseData.orders?.data && Array.isArray(responseData.orders.data)) return responseData.orders.data;
+  }
+  return [];
+};
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -474,49 +479,53 @@ export default function Orders() {
                       {/* Actions Column */}
                       <td style={{ padding: '13px 20px', whiteSpace: 'nowrap' }}>
                         <div className="flex items-center gap-2">
-                          {order.status === 'pending' && (
+                          {order.customer_id !== null && (
                             <>
+                              {order.status === 'pending' && (
+                                <>
+                                  <button
+                                    onClick={() => handleApprove(order.id)}
+                                    disabled={actionLoading === order.id}
+                                    className="action-btn p-1.5 rounded-lg"
+                                    style={{
+                                      background: 'rgba(52,196,104,0.1)',
+                                      color: '#1a7a3c',
+                                    }}
+                                    title="Approve order"
+                                  >
+                                    {actionLoading === order.id ? (
+                                      <Loader size={14} className="animate-spin" />
+                                    ) : (
+                                      <CheckCircle size={14} />
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => handleReject(order.id)}
+                                    disabled={actionLoading === order.id}
+                                    className="action-btn p-1.5 rounded-lg"
+                                    style={{
+                                      background: 'rgba(239,68,68,0.1)',
+                                      color: '#dc2626',
+                                    }}
+                                    title="Reject order"
+                                  >
+                                    <XCircle size={14} />
+                                  </button>
+                                </>
+                              )}
                               <button
-                                onClick={() => handleApprove(order.id)}
-                                disabled={actionLoading === order.id}
+                                onClick={() => openScheduleModal(order)}
                                 className="action-btn p-1.5 rounded-lg"
                                 style={{
-                                  background: 'rgba(52,196,104,0.1)',
-                                  color: '#1a7a3c',
+                                  background: 'rgba(79,95,82,0.08)',
+                                  color: SAGE,
                                 }}
-                                title="Approve order"
+                                title="Set pickup schedule"
                               >
-                                {actionLoading === order.id ? (
-                                  <Loader size={14} className="animate-spin" />
-                                ) : (
-                                  <CheckCircle size={14} />
-                                )}
-                              </button>
-                              <button
-                                onClick={() => handleReject(order.id)}
-                                disabled={actionLoading === order.id}
-                                className="action-btn p-1.5 rounded-lg"
-                                style={{
-                                  background: 'rgba(239,68,68,0.1)',
-                                  color: '#dc2626',
-                                }}
-                                title="Reject order"
-                              >
-                                <XCircle size={14} />
+                                <Calendar size={14} />
                               </button>
                             </>
                           )}
-                          <button
-                            onClick={() => openScheduleModal(order)}
-                            className="action-btn p-1.5 rounded-lg"
-                            style={{
-                              background: 'rgba(79,95,82,0.08)',
-                              color: SAGE,
-                            }}
-                            title="Set pickup schedule"
-                          >
-                            <Calendar size={14} />
-                          </button>
                         </div>
                       </td>
                     </tr>

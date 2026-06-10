@@ -38,17 +38,34 @@ export default function AdminSchedule() {
   const [notification, setNotification] = useState(null);
 
   // Fetch all orders (pending, confirmed, preparing, ready)
+  // const fetchAllOrders = async () => {
+  //   setLoading(true);
+  //   try {
+  //     const res = await axios.get('/admin/orders', {
+  //       params: { status: 'pending,confirmed,preparing,ready' }
+  //     });
+  //     setOrders(res.data.orders?.data || res.data.orders || []);
+  //   } catch (err) {
+  //     setError(err.response?.data?.message || 'Failed to load orders');
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
   const fetchAllOrders = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('/admin/orders', {
-        params: { status: 'pending,confirmed,preparing,ready' }
-      });
-      setOrders(res.data.orders?.data || res.data.orders || []);
+        const res = await axios.get('/admin/orders', {
+            params: {
+                status: 'pending,confirmed,preparing,ready',
+                for_schedule: true   // ← add this flag
+            }
+        });
+        setOrders(res.data.orders?.data || res.data.orders || []);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load orders');
+        setError(err.response?.data?.message || 'Failed to load orders');
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 

@@ -33,20 +33,61 @@ class StaffOrderController extends Controller
         $query = Order::query()
             ->orderBy('order_date', 'desc');
 
+        // ----- Status filter (comma‑separated) -----
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $statuses = is_array($request->status)
+                ? $request->status
+                : explode(',', $request->status);
+            $query->whereIn('status', $statuses);
         }
+
+        // ----- Search -----
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('order_number', 'like', "%{$search}%")
-                  ->orWhere('customer_name', 'like', "%{$search}%");
+                ->orWhere('customer_name', 'like', "%{$search}%");
+            });
+        }
+
+        // ----- Schedule‑specific modifications -----
+        if ($request->boolean('for_schedule')) {
+            // Exclude walk‑ins
+            $query->whereNotNull('customer_id');
+            // No need for additional status filter – the schedule page will send status param
+        } else {
+            // For staff order management: include walk‑ins, but only those that are
+            // pending (not yet approved) OR already confirmed/preparing/ready/completed
+            // Keep the original logic for non‑schedule requests
+            $query->where(function ($q) {
+                $q->whereNull('customer_id')
+                ->orWhere(function ($sub) {
+                    $sub->whereNotNull('customer_id')
+                        ->whereIn('status', ['confirmed', 'preparing', 'ready', 'completed']);
+                });
             });
         }
 
         $orders = $query->get();
 
         return response()->json(['orders' => $orders]);
+    }
+
+
+    public function byDate(Request $request)
+    {
+        $date = $request->input('date');
+        $orders = Order::with(['items.menu:id,name,base_price'])
+            ->whereDate('pickup_date', $date)
+            ->whereIn('status', ['confirmed', 'preparing', 'ready'])
+            ->whereNotNull('customer_id')   // ← exclude walk‑ins
+            ->orderBy('pickup_time')
+            ->get();
+
+        return response()->json([
+            'orders' => $orders,
+            'date'   => $date,
+        ]);
     }
 
     /**
@@ -209,57 +250,76 @@ class StaffOrderController extends Controller
     /**
      * PUT /api/staff/orders/{id}/status – status progression (fixed)
      */
-    public function updateStatus(Request $request, $id)
-    {
-        $request->validate([
-            'status' => ['required', Rule::in(array_keys($this->allowedStatusTransitions))],
-        ]);
+public function updateStatus(Request $request, $id)
+{
+    $request->validate([
+        'status' => ['required', Rule::in(array_keys($this->allowedStatusTransitions))],
+    ]);
 
-        $order = Order::with(['items.menu', 'items.menu.billOfMaterials.ingredient'])->findOrFail($id);
-        $newStatus = $request->status;
-        $currentStatus = $order->status;
+    $order = Order::with(['items.menu', 'items.menu.billOfMaterials.ingredient'])->findOrFail($id);
+    $newStatus = $request->status;
+    $currentStatus = $order->status;
 
-        if (!in_array($newStatus, $this->allowedStatusTransitions[$currentStatus])) {
+    // --- Additional restrictions for customer orders ---
+    if ($order->customer_id !== null) {
+        // Customer order still pending – admin must confirm first
+        if ($currentStatus === 'pending') {
             return response()->json([
-                'message' => "Cannot change status from '{$currentStatus}' to '{$newStatus}'."
-            ], 422);
+                'message' => 'This order is pending admin approval. Only the admin can confirm it.'
+            ], 403);
         }
-
-        DB::beginTransaction();
-        try {
-            // Inventory deduction only when confirming (pending → confirmed)
-            if ($newStatus === 'confirmed' && $currentStatus === 'pending') {
-                $this->deductInventory($order);
-            }
-
-            $order->status = $newStatus;
-            $order->save();
-
-            UserActivityLog::create([
-                'user_id'       => auth()->id(),
-                'activity_type' => 'order_status_updated',
-                'reference_id'  => $order->id,
-                'details'       => "Status changed from {$currentStatus} to {$newStatus}",
-            ]);
-
-            DB::commit();
-
+        // Staff cannot cancel a customer order
+        if ($newStatus === 'cancelled') {
             return response()->json([
-                'message' => "Order status updated to {$newStatus}",
-                'order'   => $order->fresh('items.menu'),
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            \Log::error('Status update failed: ' . $e->getMessage(), [
-                'order_id' => $order->id,
-                'new_status' => $newStatus,
-                'trace' => $e->getTraceAsString()
-            ]);
+                'message' => 'Customer orders can only be cancelled by the admin.'
+            ], 403);
+        }
+        // Staff cannot set a customer order to 'confirmed' (admin already set it)
+        if ($newStatus === 'confirmed') {
             return response()->json([
-                'message' => 'Failed to update status: ' . $e->getMessage()
-            ], 500);
+                'message' => 'Customer orders are confirmed by the admin, not by staff.'
+            ], 403);
         }
     }
+
+    // --- Existing transition validation ---
+    if (!in_array($newStatus, $this->allowedStatusTransitions[$currentStatus])) {
+        return response()->json([
+            'message' => "Cannot change status from '{$currentStatus}' to '{$newStatus}'."
+        ], 422);
+    }
+
+    DB::beginTransaction();
+    try {
+        // Inventory deduction only when confirming (pending → confirmed) for walk‑in orders
+        if ($newStatus === 'confirmed' && $currentStatus === 'pending') {
+            $this->deductInventory($order);
+        }
+
+        $order->status = $newStatus;
+        $order->save();
+
+        UserActivityLog::create([
+            'user_id'       => auth()->id(),
+            'activity_type' => 'order_status_updated',
+            'reference_id'  => $order->id,
+            'details'       => "Status changed from {$currentStatus} to {$newStatus}",
+        ]);
+
+        DB::commit();
+
+        return response()->json([
+            'message' => "Order status updated to {$newStatus}",
+            'order'   => $order->fresh('items.menu'),
+        ]);
+    } catch (\Exception $e) {
+        DB::rollBack();
+        \Log::error('Status update failed: ' . $e->getMessage());
+        return response()->json([
+            'message' => 'Failed to update status: ' . $e->getMessage()
+        ], 500);
+    }
+}
 
     /**
      * Inventory deduction logic (only for standard menu items with a Bill of Materials)

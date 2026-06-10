@@ -36,17 +36,34 @@ export default function StaffSchedule() {
   const [error, setError] = useState(null);
 
   // Fetch all confirmed/preparing/ready orders (for markers)
+  // const fetchAllOrders = async () => {
+  //   setLoading(true);
+  //   try {
+  //     const res = await axios.get('/staff/orders', {
+  //       params: { status: 'confirmed,preparing,ready' }
+  //     });
+  //     setOrders(res.data.orders?.data || res.data.orders || []);
+  //   } catch (err) {
+  //     setError(err.response?.data?.message || 'Failed to load schedule');
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
   const fetchAllOrders = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('/staff/orders', {
-        params: { status: 'confirmed,preparing,ready' }
-      });
-      setOrders(res.data.orders?.data || res.data.orders || []);
+        const res = await axios.get('/staff/orders', {
+            params: {
+                status: 'confirmed,preparing,ready',
+                for_schedule: true   // ← add this flag
+            }
+        });
+        setOrders(res.data.orders?.data || res.data.orders || []);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load schedule');
+        setError(err.response?.data?.message || 'Failed to load schedule');
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 

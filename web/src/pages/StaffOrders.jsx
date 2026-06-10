@@ -134,6 +134,26 @@ export default function StaffOrders() {
     return transitions[order.status] || {};
   };
 
+//   const nextStatuses = (order) => {
+//     const isCustomerOrder = order.customer_id !== null;
+//     const transitions = {
+//         pending: { confirmed: 'Confirm', cancelled: 'Cancel' },
+//         confirmed: { preparing: 'Start Preparing', cancelled: 'Cancel' },
+//         preparing: { ready: 'Mark Ready', cancelled: 'Cancel' },
+//         ready: { completed: 'Complete' },
+//         completed: {},
+//         cancelled: {},
+//     };
+
+//     let available = { ...transitions[order.status] };
+//     if (isCustomerOrder) {
+//         // Customer orders: staff cannot confirm or cancel
+//         delete available.confirmed;
+//         delete available.cancelled;
+//     }
+//     return available;
+// };
+
   const handleStatusChange = async (orderId, newStatus) => {
     try {
       await axios.put(`/staff/orders/${orderId}/status`, { status: newStatus });
