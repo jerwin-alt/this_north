@@ -1,3 +1,4 @@
+// web/src/pages/Products.jsx
 
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
@@ -59,7 +60,7 @@ export default function Products() {
   const [catForm, setCatForm] = useState({ name: '', description: '', is_active: true });
   const [catSubmitting, setCatSubmitting] = useState(false);
 
-  // Product modal
+  // Product modal (edit/add)
   const [showProdModal, setShowProdModal] = useState(false);
   const [prodSubmitting, setProdSubmitting] = useState(false);
   const [prodForm, setProdForm] = useState({
@@ -75,15 +76,20 @@ export default function Products() {
     is_ready_made: true,
     expiration_date: '',
     min_stock_level: '',
-    sku: '',   // not used, kept for internal state
+    sku: '',
     image: null,
   });
   const [editMode, setEditMode] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [prodFormError, setProdFormError] = useState('');
 
-  // SKU preview (computed from already loaded products)
+  // SKU preview
   const [skuPreview, setSkuPreview] = useState('');
+
+  // ---------- Add Stock Modal State ----------
+  const [stockModal, setStockModal] = useState({ show: false, product: null });
+  const [stockQuantity, setStockQuantity] = useState(1);
+  const [addingStock, setAddingStock] = useState(false);
 
   // ---------- Fetch Data ----------
   const fetchCategories = async () => {
@@ -116,14 +122,13 @@ export default function Products() {
     fetchProducts();
   }, []);
 
-  // ---------- Auto SKU preview calculation ----------
+  // Auto SKU preview
   useEffect(() => {
     if (prodForm.category_id) {
       const catId = prodForm.category_id;
       const cat = categories.find(c => c.id == catId);
       if (!cat) return;
 
-      // ----- Prefix generation (same as backend) -----
       const words = cat.name.trim().split(/\s+/);
       let prefix;
       if (words.length === 1) {
@@ -136,15 +141,12 @@ export default function Products() {
             if (initials.length >= 2) break;
           }
         }
-        // Fallback: pad with second letter of first word if needed
         prefix = initials.toUpperCase().padEnd(2, (words[0][1] || '').toUpperCase());
       }
 
-      // Filter existing products with the same prefix and category
       const relevantProducts = products.filter(
         p => p.category_id == catId && p.sku && p.sku.startsWith(prefix + '-')
       );
-
       let maxNum = 0;
       relevantProducts.forEach(p => {
         const parts = p.sku.split('-');
@@ -153,7 +155,6 @@ export default function Products() {
           if (!isNaN(num) && num > maxNum) maxNum = num;
         }
       });
-
       const nextNum = maxNum + 1;
       const generated = prefix + '-' + String(nextNum).padStart(4, '0');
       setSkuPreview(generated);
@@ -162,7 +163,7 @@ export default function Products() {
     }
   }, [prodForm.category_id, categories, products]);
 
-  // Filter products by selected category
+  // Filter products
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -170,7 +171,7 @@ export default function Products() {
     return matchesSearch && matchesCategory;
   });
 
-  // ---------- Category Handlers (unchanged) ----------
+  // ---------- Category Handlers ----------
   const openAddCategory = () => {
     setCatEditMode(false);
     setCurrentCategory(null);
@@ -301,7 +302,6 @@ export default function Products() {
     formData.append('stock_quantity', prodForm.stock_quantity === '' ? 0 : prodForm.stock_quantity);
     formData.append('min_stock_level', prodForm.min_stock_level === '' ? 0 : (prodForm.min_stock_level || 0));
     if (prodForm.expiration_date) formData.append('expiration_date', prodForm.expiration_date);
-    // DO NOT send SKU – the backend will generate it
     if (prodForm.image) formData.append('image', prodForm.image);
 
     try {
@@ -317,7 +317,6 @@ export default function Products() {
       }
       await fetchProducts();
       setShowProdModal(false);
-      // Reset form
       setProdForm({
         category_id: categories[0]?.id || '',
         name: '', description: '', base_price: '', menu_type: 'standard',
@@ -346,6 +345,37 @@ export default function Products() {
       await fetchProducts();
     } catch (err) {
       alert(err.response?.data?.message || 'Delete failed');
+    }
+  };
+
+  // ---------- Add Stock Handlers ----------
+  const openStockModal = (product) => {
+    setStockModal({ show: true, product });
+    setStockQuantity(1);
+  };
+
+  const closeStockModal = () => {
+    setStockModal({ show: false, product: null });
+    setStockQuantity(1);
+  };
+
+  const handleAddStock = async () => {
+    if (!stockModal.product) return;
+    if (!stockQuantity || stockQuantity < 1) {
+      alert('Please enter a valid quantity.');
+      return;
+    }
+    setAddingStock(true);
+    try {
+      await axios.post(`/admin/menu/${stockModal.product.id}/add-stock`, {
+        quantity: stockQuantity
+      });
+      await fetchProducts(); // refresh product list
+      closeStockModal();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to add stock');
+    } finally {
+      setAddingStock(false);
     }
   };
 
@@ -727,7 +757,7 @@ export default function Products() {
                   {/* Divider */}
                   <div className="divider-line my-3" />
 
-                  {/* Footer row */}
+                  {/* Footer row with stock info and action buttons (including Add Stock) */}
                   <div className="flex items-center justify-between">
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 6,
@@ -751,24 +781,29 @@ export default function Products() {
                     </div>
 
                     <div className="flex gap-1">
+                      {/* Add Stock Button */}
+                      <button
+                        onClick={() => openStockModal(product)}
+                        className="action-btn p-2 rounded-xl"
+                        style={{ color: '#0d9488', background: 'rgba(13,148,136,0.1)' }}
+                        title="Add stock"
+                      >
+                        <Plus size={14} strokeWidth={2} />
+                      </button>
+                      {/* Edit Button */}
                       <button
                         onClick={() => openEditProduct(product)}
                         className="action-btn p-2 rounded-xl"
-                        style={{
-                          color: SAGE,
-                          background: 'rgba(79,95,82,0.08)',
-                        }}
+                        style={{ color: SAGE, background: 'rgba(79,95,82,0.08)' }}
                         title="Edit product"
                       >
                         <Edit2 size={14} strokeWidth={2} />
                       </button>
+                      {/* Delete Button */}
                       <button
                         onClick={() => deleteProduct(product.id)}
                         className="action-btn p-2 rounded-xl"
-                        style={{
-                          color: '#EF4444',
-                          background: 'rgba(239,68,68,0.07)',
-                        }}
+                        style={{ color: '#EF4444', background: 'rgba(239,68,68,0.07)' }}
                         title="Delete product"
                       >
                         <Trash2 size={14} strokeWidth={2} />
@@ -890,7 +925,7 @@ export default function Products() {
         )}
       </AnimatePresence>
 
-      {/* ══ Product Modal ══ */}
+      {/* ══ Product Modal (Add/Edit) ══ */}
       <AnimatePresence>
         {showProdModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, overflowY: 'auto', backdropFilter: 'blur(4px)' }}>
@@ -1039,7 +1074,7 @@ export default function Products() {
                     />
                   </div>
 
-                  {/* SKU – now read-only preview */}
+                  {/* SKU preview */}
                   <div>
                     <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 600, color: SAGE, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
                       SKU <span style={{ color: MUTED_GRAY, fontWeight: 400 }}>(auto‑generated)</span>
@@ -1154,6 +1189,35 @@ export default function Products() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* ══ Add Stock Modal ══ */}
+      {stockModal.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" style={{ backdropFilter: 'blur(4px)' }}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <h3 className="text-xl font-bold text-[#4F5F52] mb-4">Add Stock</h3>
+            <p className="text-gray-600 mb-2">Product: <strong>{stockModal.product?.name}</strong></p>
+            <p className="text-gray-600 mb-4">Current stock: <strong>{stockModal.product?.stock_quantity}</strong></p>
+            <label className="block text-sm font-semibold mb-1 text-[#4F5F52]">Quantity to add</label>
+            <input
+              type="number"
+              min="1"
+              value={stockQuantity}
+              onChange={(e) => setStockQuantity(parseInt(e.target.value) || 0)}
+              className="w-full border rounded-xl px-4 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-[#4F5F52]"
+            />
+            <div className="flex justify-end gap-3">
+              <button onClick={closeStockModal} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-100">Cancel</button>
+              <button
+                onClick={handleAddStock}
+                disabled={addingStock}
+                className="px-4 py-2 rounded-lg bg-[#4F5F52] text-white hover:bg-[#3e4c42] disabled:opacity-50"
+              >
+                {addingStock ? 'Adding...' : 'Add Stock'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

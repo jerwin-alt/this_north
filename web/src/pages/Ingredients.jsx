@@ -1,3 +1,4 @@
+// web/src/pages/Ingredients.jsx
 
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
@@ -5,7 +6,6 @@ import {
   Plus, Edit2, Trash2, X, Package, AlertCircle,
   Loader, Box, ArrowUpCircle
 } from 'lucide-react';
-
 
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
@@ -70,7 +70,7 @@ export default function Ingredients() {
     fetchIngredients();
   }, []);
 
-  // ── Add/Edit Handlers (unchanged except we keep is_active for form but won't display in table) ──
+  // ── Add/Edit Handlers ──
   const resetForm = () => {
     setFormData({
       name: '',
@@ -302,7 +302,6 @@ export default function Ingredients() {
                   background: `linear-gradient(135deg, rgba(242,237,228,0.9), rgba(255,243,217,0.4))`,
                   borderBottom: '1.5px solid rgba(242,237,228,1)',
                 }}>
-                  {/* Removed “Status” column */}
                   {['ID', 'Name', 'Unit', 'Scale / Unit', 'Current Stock', 'Actions'].map((h, i) => (
                     <th key={h} style={{
                       padding: '14px 20px',
@@ -407,7 +406,7 @@ export default function Ingredients() {
                         </span>
                       </td>
 
-                      {/* Actions – now includes Adjust Stock, Edit, Delete */}
+                      {/* Actions */}
                       <td style={{ padding: '14px 20px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
                           <button
@@ -445,7 +444,7 @@ export default function Ingredients() {
         </div>
       </div>
 
-      {/* ══ Add/Edit Modal (unchanged) ══ */}
+      {/* ══ Add/Edit Modal ══ */}
       {showModal && (
         <div style={{
           position: 'fixed', inset: 0,
@@ -501,26 +500,66 @@ export default function Ingredients() {
                   <AlertCircle size={15} /> {formError}
                 </div>
               )}
-              {/* fields: Name, Unit, Scale per Unit, Current Stock, Active checkbox */}
+              {/* Name */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Name *</label>
                 <input type="text" name="name" value={formData.name} onChange={handleInputChange} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: fieldErrors.name ? '#EF4444' : 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
                 {fieldErrors.name && <p style={{ color: '#EF4444', fontSize: '0.72rem', marginTop: 4 }}>{fieldErrors.name[0]}</p>}
               </div>
+
+              {/* Unit - DROPDOWN */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Unit *</label>
-                <input type="text" name="unit" value={formData.unit} onChange={handleInputChange} required placeholder="e.g., kg, pcs, liters" className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: fieldErrors.unit ? '#EF4444' : 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
+                <select
+                  name="unit"
+                  value={formData.unit}
+                  onChange={handleInputChange}
+                  required
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                  style={{ borderColor: fieldErrors.unit ? '#EF4444' : 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                >
+                  <option value="">Select unit</option>
+                  <option value="Grams (G)">Grams (G)</option>
+                  <option value="Kilograms (KG)">Kilograms (KG)</option>
+                  <option value="Ounces (OZ)">Ounces (OZ)</option>
+                  <option value="Pieces (PCS)">Pieces (PCS)</option>
+                  <option value="Milliliter (ML)">Milliliter (ML)</option>
+                  <option value="Liter (L)">Liter (L)</option>
+                  <option value="Pack (P)">Pack (P)</option>
+                  <option value="Gallon (GL)">Gallon (GL)</option>
+                </select>
                 {fieldErrors.unit && <p style={{ color: '#EF4444', fontSize: '0.72rem', marginTop: 4 }}>{fieldErrors.unit[0]}</p>}
               </div>
+
+              {/* Scale per Unit - DROPDOWN */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Scale per Unit <span style={{ color: MUTED_GRAY, fontWeight: 400, textTransform: 'none', fontSize: '0.68rem' }}>(optional)</span></label>
-                <input type="text" name="scale_per_uni" value={formData.scale_per_uni} onChange={handleInputChange} placeholder="e.g., per bag, per box" className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Scale per Unit <span style={{ color: MUTED_GRAY, fontWeight: 400, textTransform: 'none', fontSize: '0.68rem' }}>(optional)</span>
+                </label>
+                <select
+                  name="scale_per_uni"
+                  value={formData.scale_per_uni}
+                  onChange={handleInputChange}
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                >
+                  <option value="">Select scale (optional)</option>
+                  <option value="Per Bag">Per Bag</option>
+                  <option value="Per Box">Per Box</option>
+                  <option value="Per Tray">Per Tray</option>
+                  <option value="Per Sack">Per Sack</option>
+                  <option value="Per Can">Per Can</option>
+                </select>
               </div>
+
+              {/* Current Stock */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Current Stock</label>
                 <input type="number" step="0.01" name="current_stock" value={formData.current_stock} onChange={handleInputChange} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
                 <p style={{ color: MUTED_GRAY, fontSize: '0.7rem', marginTop: 5 }}>Initial quantity — adjustable later.</p>
               </div>
+
+              {/* Active checkbox */}
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                 <input type="checkbox" name="is_active" checked={formData.is_active} onChange={handleInputChange} id="is_active" className="checkbox-custom" style={{ width: 16, height: 16, borderRadius: 4 }} />
                 <span style={{ fontSize: '0.85rem', color: SAGE, fontWeight: 500 }}>
@@ -541,7 +580,7 @@ export default function Ingredients() {
         </div>
       )}
 
-      {/* ══ Adjust Stock Modal ══ */}
+      {/* ══ Adjust Stock Modal (unchanged) ══ */}
       {showStockModal && stockIngredient && (
         <div style={{
           position: 'fixed', inset: 0,

@@ -279,4 +279,128 @@ class AdminMenuController extends Controller
             'product' => $menu->load(['category', 'drinkSizes']),
         ]);
     }
+
+
+        /**
+     * Add stock to a menu item.
+     */
+    public function addStock(Request $request, $id)
+    {
+        $menu = Menu::findOrFail($id);
+
+        $request->validate([
+            'quantity' => 'required|integer|min:1',
+        ]);
+
+        $menu->increment('stock_quantity', $request->quantity);
+
+        // Log activity
+        UserActivityLog::create([
+            'user_id'       => auth()->id(),
+            'activity_type' => 'inventory_updated',
+            'reference_id'  => $menu->id,
+            'details'       => "Added stock to {$menu->name}: +{$request->quantity}",
+        ]);
+
+        return response()->json([
+            'message' => 'Stock added successfully',
+            'new_stock' => $menu->fresh()->stock_quantity,
+        ]);
+    }
+
+
+    /**
+     * GET /api/admin/menu-transactions
+     * Returns menu stock transactions (stock in and stock out) parsed from activity logs.
+     */
+    public function getMenuTransactions(Request $request)
+    {
+        // Fetch all inventory_updated logs that are either stock additions or deductions
+        $logs = UserActivityLog::where('activity_type', 'inventory_updated')
+            ->where(function ($q) {
+                $q->where('details', 'like', 'Added stock%')
+                ->orWhere('details', 'like', 'Deducted stock%');
+            })
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $transactions = [];
+
+        foreach ($logs as $log) {
+            // --- Parse Stock In (admin add stock) ---
+            if (preg_match('/Added stock to (.+): \+(\d+)/', $log->details, $matches)) {
+                $productName = trim($matches[1]);
+                $quantity = (int) $matches[2];
+
+                // Try to find menu by reference_id first, then by name
+                $menu = Menu::find($log->reference_id);
+                if (!$menu) {
+                    $menu = Menu::where('name', $productName)->first();
+                }
+                if (!$menu) continue;
+
+                $currentStock = $menu->stock_quantity ?? 0;
+                $pastStock = $currentStock - $quantity;
+
+                $transactions[] = [
+                    'sku'           => $menu->sku,
+                    'product_name'  => $menu->name,
+                    'type'          => 'Stock In',
+                    'past_stock'    => max(0, $pastStock),
+                    'added_stock'   => $quantity,
+                    'current_stock' => $currentStock,
+                    'qty_sold'      => 0,
+                    'created_at'    => $log->created_at->toDateTimeString(),
+                ];
+            }
+            // --- Parse Stock Out (order completion) ---
+            elseif (preg_match('/Deducted stock for (.+): -(\d+) \(was (\d+), now (\d+)\)/', $log->details, $matches)) {
+                $productName = trim($matches[1]);
+                $quantity = (int) $matches[2];
+                $pastStock = (int) $matches[3];
+                $newStock = (int) $matches[4];
+
+                $menu = Menu::find($log->reference_id);
+                if (!$menu) {
+                    $menu = Menu::where('name', $productName)->first();
+                }
+                if (!$menu) continue;
+
+                $transactions[] = [
+                    'sku'           => $menu->sku,
+                    'product_name'  => $menu->name,
+                    'type'          => 'Stock Out',
+                    'past_stock'    => $pastStock,
+                    'added_stock'   => 0,
+                    'current_stock' => $newStock,
+                    'qty_sold'      => $quantity,
+                    'created_at'    => $log->created_at->toDateTimeString(),
+                ];
+            }
+        }
+
+        // Apply date filters if provided
+        if ($request->filled('start_date')) {
+            $transactions = array_filter($transactions, function ($tx) use ($request) {
+                return $tx['created_at'] >= $request->start_date;
+            });
+        }
+        if ($request->filled('end_date')) {
+            $transactions = array_filter($transactions, function ($tx) use ($request) {
+                return $tx['created_at'] <= $request->end_date . ' 23:59:59';
+            });
+        }
+
+        // Apply category filter if provided
+        if ($request->filled('category_id')) {
+            $categoryId = $request->category_id;
+            $transactions = array_filter($transactions, function ($tx) use ($categoryId) {
+                $menu = Menu::where('sku', $tx['sku'])->first();
+                return $menu && $menu->category_id == $categoryId;
+            });
+        }
+
+        // Re-index after filtering
+        return response()->json(['transactions' => array_values($transactions)]);
+    }
 }

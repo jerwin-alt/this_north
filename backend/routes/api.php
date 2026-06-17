@@ -37,6 +37,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/customer/orders', [CustomerOrderController::class, 'store']);
 
+    Route::post('/customer/payments', [App\Http\Controllers\CustomerPaymentController::class, 'store']);
+
 
 
 });
@@ -65,8 +67,12 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::delete('/admin/menu/{id}', [AdminMenuController::class, 'deleteMenu']);
     Route::put('/admin/menu/{id}', [AdminMenuController::class, 'updateMenu']);
 
+    Route::post('/admin/menu/{id}/add-stock', [AdminMenuController::class, 'addStock']);
+
     // OPTIONAL (if you still want separate simple list)
     Route::get('/admin/menu-simple', [AdminMenuController::class, 'getMenu']);
+
+    Route::get('/admin/menu-transactions', [AdminMenuController::class, 'getMenuTransactions']);
 
     /*
     |--------------------------------------------------------------------------

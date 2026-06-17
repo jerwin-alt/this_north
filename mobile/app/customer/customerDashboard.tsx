@@ -177,6 +177,14 @@ export default function CustomerDashboard() {
   const [orderNotes, setOrderNotes] = useState("");
   const [placingOrder, setPlacingOrder] = useState(false);
 
+  // ── Payment modal state ──
+  const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentOption, setPaymentOption] = useState<"down" | "full">("down");
+  const [paymentMethod, setPaymentMethod] = useState("gcash");
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [submittingPayment, setSubmittingPayment] = useState(false);
+
   // ── Fetch functions ──
   const fetchCategories = async () => {
     try {
@@ -294,10 +302,96 @@ export default function CustomerDashboard() {
     Alert.alert("Added to cart", `${selectedProduct.name} has been added.`);
   };
 
-  // ── NEW: Order Now (direct order without cart) ──
+  // ── Submit payment after order creation ──
+  const submitPayment = async () => {
+    if (!pendingOrder) return;
+
+    let amountToPay = 0;
+    if (paymentOption === "down") {
+      amountToPay = pendingOrder.total_amount * 0.3;
+    } else {
+      amountToPay = pendingOrder.total_amount;
+    }
+
+    if (!referenceNumber.trim()) {
+      Alert.alert("Missing Reference", "Please enter the GCash reference number.");
+      return;
+    }
+
+    setSubmittingPayment(true);
+    try {
+      await axios.post("/customer/payments", {
+        order_id: pendingOrder.id,
+        payment_method: paymentMethod,
+        amount_paid: amountToPay,
+        reference_number: referenceNumber,
+      });
+
+      Alert.alert(
+        "Order Placed! 🎉",
+        `Your ${paymentOption === "down" ? "30% down payment" : "full payment"} has been received. Your order is now pending approval.`
+      );
+      setShowPaymentModal(false);
+      setPendingOrder(null);
+      setReferenceNumber("");
+      setCart([]);
+      setOrderNotes("");
+      if (activeTab === "orders") fetchOrders();
+    } catch (err: any) {
+      Alert.alert("Payment Failed", err.response?.data?.message || "Could not process payment. Please try again.");
+    } finally {
+      setSubmittingPayment(false);
+    }
+  };
+
+  // ── Create order and show payment modal (cart) ──
+  const placeOrder = async () => {
+    if (cart.length === 0) {
+      Alert.alert("Cart empty", "Please add items to your order");
+      return;
+    }
+    if (!pickupDate || !pickupTime) {
+      Alert.alert("Missing schedule", "Please select pickup date and time");
+      return;
+    }
+
+    setPlacingOrder(true);
+    const orderItems = cart.map((item) => ({
+      menu_id: item.product.id,
+      quantity: item.quantity,
+      size_id: item.sizeId,
+      cake_size_id: item.cakeSizeId,
+      flavor_id: item.flavorId,
+    }));
+
+    const formattedTime = `${pickupTime.getHours().toString().padStart(2, "0")}:${pickupTime
+      .getMinutes()
+      .toString()
+      .padStart(2, "0")}:00`;
+    const pickupDateStr = pickupDate.toISOString().split("T")[0];
+
+    try {
+      const orderResponse = await axios.post("/customer/orders", {
+        items: orderItems,
+        pickup_date: pickupDateStr,
+        pickup_time: formattedTime,
+        notes: orderNotes,
+      });
+
+      const newOrder = orderResponse.data.order;
+      setPendingOrder(newOrder);
+      setPlacingOrder(false);
+      setShowCart(false); // close cart modal
+      setShowPaymentModal(true); // show payment modal
+    } catch (err: any) {
+      setPlacingOrder(false);
+      Alert.alert("Error", err.response?.data?.message || "Failed to create order");
+    }
+  };
+
+  // ── Create order and show payment modal (order now) ──
   const orderNow = async () => {
     if (!selectedProduct) return;
-
     if (!pickupDate || !pickupTime) {
       Alert.alert("Missing Schedule", "Please set a pickup date and time before ordering.");
       return;
@@ -321,60 +415,21 @@ export default function CustomerDashboard() {
         .padStart(2, "0")}:00`;
       const pickupDateStr = pickupDate.toISOString().split("T")[0];
 
-      await axios.post("/customer/orders", {
+      const orderResponse = await axios.post("/customer/orders", {
         items: orderItems,
         pickup_date: pickupDateStr,
         pickup_time: formattedTime,
         notes: orderNotes,
       });
 
-      Alert.alert("Order Placed! 🎉", "Your order has been submitted for approval.");
+      const newOrder = orderResponse.data.order;
+      setPendingOrder(newOrder);
+      setPlacingOrder(false);
       setProductModalVisible(false);
-      if (activeTab === "orders") fetchOrders();
+      setShowPaymentModal(true);
     } catch (err: any) {
-      Alert.alert("Error", err.response?.data?.message || "Failed to place order");
-    } finally {
       setPlacingOrder(false);
-    }
-  };
-
-  const placeOrder = async () => {
-    if (cart.length === 0) {
-      Alert.alert("Cart empty", "Please add items to your order");
-      return;
-    }
-    if (!pickupDate || !pickupTime) {
-      Alert.alert("Missing schedule", "Please select pickup date and time");
-      return;
-    }
-    setPlacingOrder(true);
-    const orderItems = cart.map((item) => ({
-      menu_id: item.product.id,
-      quantity: item.quantity,
-      size_id: item.sizeId,
-      cake_size_id: item.cakeSizeId,
-      flavor_id: item.flavorId,
-    }));
-    const formattedTime = `${pickupTime.getHours().toString().padStart(2, "0")}:${pickupTime
-      .getMinutes()
-      .toString()
-      .padStart(2, "0")}:00`;
-    try {
-      await axios.post("/customer/orders", {
-        items: orderItems,
-        pickup_date: pickupDate.toISOString().split("T")[0],
-        pickup_time: formattedTime,
-        notes: orderNotes,
-      });
-      Alert.alert("Order Placed! 🎉", "Your order has been submitted for approval.");
-      setCart([]);
-      setShowCart(false);
-      setOrderNotes("");
-      fetchOrders();
-    } catch (err: any) {
-      Alert.alert("Error", err.response?.data?.message || "Failed to place order");
-    } finally {
-      setPlacingOrder(false);
+      Alert.alert("Error", err.response?.data?.message || "Failed to create order");
     }
   };
 
@@ -866,7 +921,6 @@ export default function CustomerDashboard() {
                 </View>
               </View>
 
-              {/* Action buttons: Cancel, Add to Cart, Order Now */}
               <View style={{ flexDirection: "row", gap: 10, marginTop: 20, marginBottom: 10 }}>
                 <TouchableOpacity
                   onPress={() => setProductModalVisible(false)}
@@ -1023,16 +1077,102 @@ export default function CustomerDashboard() {
                       {placingOrder ? (
                         <ActivityIndicator color="#fff" size="small" />
                       ) : (
-                        <>
-                          <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                          <Text style={s.placeOrderText}>Place Order</Text>
-                        </>
+                        <Text style={s.placeOrderText}>Proceed to Payment</Text>
                       )}
                     </LinearGradient>
                   </TouchableOpacity>
                 </View>
               }
             />
+          </View>
+        </View>
+      </Modal>
+
+      {/* ══ Payment Modal (30% Down or Full) ══ */}
+      <Modal visible={showPaymentModal} animationType="slide" transparent>
+        <View style={s.modalOverlay}>
+          <View style={s.paymentSheet}>
+            <View style={s.modalHandle} />
+
+            <View style={s.paymentHeader}>
+              <Text style={s.paymentTitle}>Complete Payment</Text>
+              <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
+                <Ionicons name="close" size={24} color={MUTED_GRAY} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={s.paymentBody}>
+              <Text style={s.paymentAmountLabel}>Order Total</Text>
+              <Text style={s.paymentAmount}>
+                ₱{pendingOrder?.total_amount?.toLocaleString()}
+              </Text>
+
+              <Text style={s.paymentOptionLabel}>Choose Payment Option</Text>
+              <View style={s.paymentOptionRow}>
+                <TouchableOpacity
+                  style={[s.paymentOptionChip, paymentOption === "down" && s.paymentOptionChipActive]}
+                  onPress={() => setPaymentOption("down")}
+                >
+                  <Text style={[s.paymentOptionText, paymentOption === "down" && s.paymentOptionTextActive]}>
+                    30% Down Payment
+                  </Text>
+                  <Text style={[s.paymentOptionPrice, paymentOption === "down" && { color: "#fff" }]}>
+                    ₱{pendingOrder ? (pendingOrder.total_amount * 0.3).toLocaleString() : 0}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.paymentOptionChip, paymentOption === "full" && s.paymentOptionChipActive]}
+                  onPress={() => setPaymentOption("full")}
+                >
+                  <Text style={[s.paymentOptionText, paymentOption === "full" && s.paymentOptionTextActive]}>
+                    Full Payment
+                  </Text>
+                  <Text style={[s.paymentOptionPrice, paymentOption === "full" && { color: "#fff" }]}>
+                    ₱{pendingOrder?.total_amount?.toLocaleString()}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={s.paymentMethodLabel}>Payment Method</Text>
+              <View style={s.paymentMethodOptions}>
+                <TouchableOpacity
+                  style={[s.paymentMethodChip, paymentMethod === "gcash" && s.paymentMethodChipActive]}
+                  onPress={() => setPaymentMethod("gcash")}
+                >
+                  <Text style={[s.paymentMethodText, paymentMethod === "gcash" && s.paymentMethodTextActive]}>
+                    GCash
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TextInput
+                placeholder="GCash Reference Number"
+                value={referenceNumber}
+                onChangeText={setReferenceNumber}
+                style={s.paymentReferenceInput}
+                placeholderTextColor={MUTED_GRAY}
+              />
+
+              <TouchableOpacity
+                onPress={submitPayment}
+                disabled={submittingPayment}
+                style={[s.paymentButton, submittingPayment && { opacity: 0.7 }]}
+                activeOpacity={0.88}
+              >
+                <LinearGradient colors={[SAGE, SAGE_DARK]} style={s.paymentButtonGrad}>
+                  {submittingPayment ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={s.paymentButtonText}>
+                      Pay ₱
+                      {paymentOption === "down"
+                        ? (pendingOrder?.total_amount * 0.3).toLocaleString()
+                        : pendingOrder?.total_amount?.toLocaleString()}
+                    </Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1540,8 +1680,6 @@ const s = StyleSheet.create({
     paddingVertical: 14,
   },
   modalAddBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-
-  // New Order Now button styles
   modalOrderBtn: {
     flex: 1,
     borderRadius: 14,
@@ -1559,7 +1697,6 @@ const s = StyleSheet.create({
     paddingVertical: 14,
   },
   modalOrderBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-
   productModal: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
@@ -1739,4 +1876,135 @@ const s = StyleSheet.create({
     paddingVertical: 16,
   },
   placeOrderText: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
+
+  // Payment modal styles
+  paymentSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    maxHeight: "80%",
+  },
+  paymentHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: CREAM,
+  },
+  paymentTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: SAGE,
+  },
+  paymentBody: {
+    padding: 20,
+  },
+  paymentAmountLabel: {
+    fontSize: 12,
+    color: MUTED_GRAY,
+    marginBottom: 4,
+  },
+  paymentAmount: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: SAGE,
+    marginBottom: 20,
+  },
+  paymentOptionLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: SAGE,
+    marginBottom: 10,
+  },
+  paymentOptionRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 20,
+  },
+  paymentOptionChip: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "rgba(166,162,154,0.3)",
+    backgroundColor: "#FAFAFA",
+    alignItems: "center",
+  },
+  paymentOptionChipActive: {
+    backgroundColor: SAGE,
+    borderColor: SAGE,
+  },
+  paymentOptionText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: MUTED_GRAY,
+    marginBottom: 4,
+  },
+  paymentOptionTextActive: {
+    color: "#fff",
+  },
+  paymentOptionPrice: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: SAGE,
+  },
+  paymentMethodLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: SAGE,
+    marginBottom: 10,
+  },
+  paymentMethodOptions: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 20,
+  },
+  paymentMethodChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "rgba(166,162,154,0.3)",
+    backgroundColor: "#FAFAFA",
+  },
+  paymentMethodChipActive: {
+    backgroundColor: SAGE,
+    borderColor: SAGE,
+  },
+  paymentMethodText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: MUTED_GRAY,
+  },
+  paymentMethodTextActive: {
+    color: "#fff",
+  },
+  paymentReferenceInput: {
+    backgroundColor: "#FAFAFA",
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "rgba(166,162,154,0.25)",
+    padding: 12,
+    fontSize: 14,
+    color: SAGE,
+    marginBottom: 24,
+  },
+  paymentButton: {
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  paymentButtonGrad: {
+    paddingVertical: 16,
+    alignItems: "center",
+    borderRadius: 16,
+  },
+  paymentButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
 });

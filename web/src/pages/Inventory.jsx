@@ -1,3 +1,4 @@
+// web/src/pages/Inventory.jsx
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from '/api/axios';
@@ -123,10 +124,21 @@ export default function Inventory() {
     }
   }, [startDateString, endDateString, debouncedType]);
 
-  // ── Placeholder for Menu Transactions endpoint ──
+  // ── Fetch menu transactions from the new endpoint (no migration needed) ──
   const fetchMenuTransactions = useCallback(async () => {
-    // Replace with actual endpoint when ready
-    setMenuTransactions([]);
+    try {
+      const res = await axios.get('/admin/menu-transactions', {
+        params: {
+          start_date: startDateString,
+          end_date: endDateString,
+          category_id: selectedCategory !== 'all' ? selectedCategory : undefined,
+        }
+      });
+      setMenuTransactions(res.data.transactions || []);
+    } catch (err) {
+      console.error('Error fetching menu transactions:', err);
+      setMenuTransactions([]);
+    }
   }, [startDateString, endDateString, selectedCategory]);
 
   // ── Fetch history data (placeholder) ──
@@ -330,7 +342,7 @@ export default function Inventory() {
                         <div style={{ width: 56, height: 56, background: 'rgba(166,162,154,0.1)', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', border: '1.5px dashed rgba(166,162,154,0.3)' }}>
                           <Package size={24} style={{ color: MUTED_GRAY, opacity: 0.4 }} />
                         </div>
-                        <p style={{ fontSize: '0.85rem' }}>No menu transactions yet (backend endpoint needed)</p>
+                        <p style={{ fontSize: '0.85rem' }}>No menu transactions yet. Add stock from the Products page to see records.</p>
                       </td>
                     </tr>
                   ) : (
@@ -338,7 +350,7 @@ export default function Inventory() {
                       <tr key={idx} style={{ borderTop: idx === 0 ? 'none' : `1px solid rgba(242,237,228,0.8)` }}>
                         <td style={{ padding: '13px 20px', fontWeight: 600, color: SAGE, fontSize: '0.85rem' }}>{item.sku}</td>
                         <td style={{ padding: '13px 20px', fontWeight: 600, color: SAGE, fontSize: '0.85rem' }}>{item.product_name}</td>
-                        <td style={{ padding: '13px 20px' }}><span style={{ display: 'inline-block', background: 'rgba(79,95,82,0.07)', color: SAGE, borderRadius: 6, padding: '2px 9px', fontSize: '0.75rem', fontWeight: 500 }}>{item.type || '—'}</span></td>
+                        <td style={{ padding: '13px 20px' }}><span style={{ display: 'inline-block', background: 'rgba(79,95,82,0.07)', color: SAGE, borderRadius: 6, padding: '2px 9px', fontSize: '0.75rem', fontWeight: 500 }}>{item.type || 'Stock In'}</span></td>
                         <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.85rem' }}>{item.past_stock ?? '—'}</td>
                         <td style={{ padding: '13px 20px', color: '#1a7a3c', fontSize: '0.85rem', fontWeight: 600 }}>{item.added_stock ?? '—'}</td>
                         <td style={{ padding: '13px 20px', color: SAGE, fontSize: '0.85rem', fontWeight: 600 }}>{item.current_stock ?? '—'}</td>
@@ -428,7 +440,7 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* ── Menu History Modal (title changed to "History") ── */}
+      {/* ── Menu History Modal ── */}
       {showHistoryModal && (
         <div className="modal-backdrop" onClick={() => setShowHistoryModal(false)}>
           <div className="modal-content" style={{ maxWidth: '800px' }} onClick={e => e.stopPropagation()}>
@@ -497,7 +509,7 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* ── Ingredient Transactions History Modal (wider, fits content) ── */}
+      {/* ── Ingredient Transactions History Modal ── */}
       {showIngredientHistoryModal && (
         <div className="modal-backdrop" onClick={() => setShowIngredientHistoryModal(false)}>
           <div className="modal-content" style={{ maxWidth: '90%', width: '1200px' }} onClick={e => e.stopPropagation()}>
