@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\UserActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -11,111 +12,96 @@ use Illuminate\Validation\Rule;
 class CustomerPaymentController extends Controller
 {
     /**
-     * Record a payment for an order (30% down or full).
+     * Store a newly created payment (customer side).
+     * Payment is only allowed if the order is not pending or cancelled.
      */
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'order_id'         => 'required|exists:orders,id',
-            'payment_method'   => ['required', Rule::in(['gcash', 'credit_card', 'bank_transfer'])],
-            'amount_paid'      => 'required|numeric|min:0.01',
-            'reference_number' => 'nullable|string|max:100',
+            'order_id'          => 'required|exists:orders,id',
+            'payment_method'    => ['required', Rule::in(['cash', 'gcash'])],
+            'amount_paid'       => 'required|numeric|min:0.01',
+            'reference_number'  => 'nullable|string|max:100',
         ]);
 
         $order = Order::with('payments')->findOrFail($validated['order_id']);
 
-        // Ensure the order belongs to the authenticated customer
-        if ($order->customer_id !== auth()->id()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        // Only allow payment if order is still pending
-        if ($order->status !== 'pending') {
-            return response()->json(['message' => 'Order already processed'], 422);
-        }
-
-        $totalAmount = $order->total_amount;
-        $alreadyPaid = $order->payments->where('payment_status', 'completed')->sum('amount_paid');
-
-        // If already paid partially, the remaining can be any amount up to balance
-        $remaining = $totalAmount - $alreadyPaid;
-
-        $validPercentages = [0.3, 1.0];
-        $isValidAmount = false;
-        $paymentType = null;
-
-        foreach ($validPercentages as $pct) {
-            $expected = round($totalAmount * $pct, 2);
-            if (abs($validated['amount_paid'] - $expected) < 0.01) {
-                $isValidAmount = true;
-                $paymentType = ($pct == 1.0) ? 'full' : 'downpayment';
-                break;
-            }
-        }
-
-        // Also allow paying the exact remaining balance
-        if (abs($validated['amount_paid'] - $remaining) < 0.01) {
-            $isValidAmount = true;
-            $paymentType = ($remaining == $totalAmount) ? 'downpayment' : 'full';
-        }
-
-        if (!$isValidAmount && $alreadyPaid == 0) {
+        // 🔒 NEW: Only allow payment if order is NOT pending or cancelled
+        if (in_array($order->status, ['pending', 'cancelled'])) {
             return response()->json([
-                'message' => "Payment amount must be either 30% of total (₱" . round($totalAmount * 0.3, 2) . ") or full amount (₱{$totalAmount})."
-            ], 422);
+                'message' => 'Payment is not allowed for pending or cancelled orders. Please wait for admin approval.'
+            ], 403);
         }
 
-        if ($validated['amount_paid'] > $remaining) {
-            return response()->json(['message' => 'Amount exceeds remaining balance'], 422);
+        // Calculate total already paid
+        $alreadyPaid = $order->payments->where('payment_status', 'completed')->sum('amount_paid');
+        $remainingBalance = $order->total_amount - $alreadyPaid;
+
+        if ($validated['amount_paid'] <= 0) {
+            return response()->json(['message' => 'Amount must be greater than zero'], 422);
+        }
+
+        // Check if overpayment (but allow if remaining balance is >0)
+        $changeAmount = 0;
+        if ($validated['amount_paid'] > $remainingBalance && $remainingBalance > 0) {
+            // Overpayment – will be handled as change
+            $changeAmount = $validated['amount_paid'] - $remainingBalance;
         }
 
         DB::beginTransaction();
         try {
             $newPaid = $alreadyPaid + $validated['amount_paid'];
-            $changeAmount = 0;
+            $paymentStatus = 'unpaid';
 
-            if ($newPaid >= $totalAmount) {
+            if ($newPaid >= $order->total_amount) {
                 $paymentStatus = 'paid';
-                $changeAmount = $newPaid - $totalAmount;
-            } else {
+                // If overpaid, change is already computed
+                if ($newPaid > $order->total_amount) {
+                    $changeAmount = $newPaid - $order->total_amount;
+                }
+            } elseif ($newPaid > 0) {
                 $paymentStatus = 'partially_paid';
             }
 
+            // Create payment record
             $payment = Payment::create([
                 'order_id'         => $order->id,
-                'payment_type'     => $paymentType,
+                'payment_type'     => 'full', // customers always pay full or down? but we have payment_option from frontend – we can ignore for now
                 'payment_method'   => $validated['payment_method'],
                 'amount_paid'      => $validated['amount_paid'],
-                'discount_amount'  => 0,
+                'discount_amount'  => 0, // no discount applied at payment level yet
                 'final_amount'     => $validated['amount_paid'],
                 'change_amount'    => $changeAmount,
                 'payment_date'     => now(),
                 'reference_number' => $validated['reference_number'] ?? null,
                 'payment_status'   => 'completed',
-                'processed_by'     => auth()->id(),
+                'processed_by'     => auth()->id(), // customer is the one paying
             ]);
 
+            // Update order payment status
             $order->update(['payment_status' => $paymentStatus]);
 
             // Log activity
-            \App\Models\UserActivityLog::create([
+            UserActivityLog::create([
                 'user_id'       => auth()->id(),
-                'activity_type' => 'discount_applied', // or add 'payment_made'
+                'activity_type' => 'discount_applied', // using generic; could add 'payment_made'
                 'reference_id'  => $payment->id,
-                'details'       => "Customer paid ₱{$validated['amount_paid']} for order {$order->order_number}",
+                'details'       => "Payment of ₱{$validated['amount_paid']} received for order {$order->order_number}",
             ]);
 
             DB::commit();
 
             return response()->json([
-                'message'    => 'Payment recorded successfully',
-                'payment'    => $payment,
-                'order_payment_status' => $paymentStatus,
-                'change'     => $changeAmount,
+                'message'               => 'Payment recorded successfully',
+                'payment'               => $payment->load('order'),
+                'order_payment_status'  => $paymentStatus,
+                'change'                => $changeAmount,
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Payment failed: ' . $e->getMessage()], 500);
+            return response()->json([
+                'message' => 'Payment failed: ' . $e->getMessage()
+            ], 500);
         }
     }
 }

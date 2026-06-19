@@ -7,6 +7,7 @@ use App\Models\OrderItem;
 use App\Models\UserActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Models\Menu;
 
 class CustomerOrderController extends Controller
 {
@@ -65,6 +66,36 @@ class CustomerOrderController extends Controller
 
         $customer = $request->user();
 
+        // ---------- STOCK VALIDATION ----------
+        $menuIds = array_unique(array_column($validated['items'], 'menu_id'));
+        $menuItems = Menu::whereIn('id', $menuIds)->get()->keyBy('id');
+
+        $stockErrors = [];
+        foreach ($validated['items'] as $index => $item) {
+            $menu = $menuItems->get($item['menu_id']);
+            if (!$menu) {
+                $stockErrors[] = "Menu item ID {$item['menu_id']} not found.";
+                continue;
+            }
+
+            // Skip stock check if track_stock is false
+            if (!$menu->track_stock) {
+                continue;
+            }
+
+            if ($item['quantity'] > $menu->stock_quantity) {
+                $stockErrors[] = "Insufficient stock for {$menu->name}. Available: {$menu->stock_quantity}, Requested: {$item['quantity']}.";
+            }
+        }
+
+        if (!empty($stockErrors)) {
+            return response()->json([
+                'message' => 'Stock validation failed',
+                'errors'  => $stockErrors
+            ], 422);
+        }
+
+        // ---------- Proceed with order creation ----------
         DB::beginTransaction();
         try {
             $orderNumber = 'ORD-' . date('Ymd') . '-' . strtoupper(uniqid());

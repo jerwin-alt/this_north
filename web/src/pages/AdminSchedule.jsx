@@ -1,3 +1,4 @@
+// web/src/pages/AdminSchedule.jsx
 
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
@@ -30,42 +31,27 @@ const toLocalDateString = (date) => {
 export default function AdminSchedule() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(null);
-  const [orders, setOrders] = useState([]);          // all orders with schedule
-  const [dateOrders, setDateOrders] = useState([]); // orders of selected date
+  const [orders, setOrders] = useState([]);
+  const [dateOrders, setDateOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [notification, setNotification] = useState(null);
 
-  // Fetch all orders (pending, confirmed, preparing, ready)
-  // const fetchAllOrders = async () => {
-  //   setLoading(true);
-  //   try {
-  //     const res = await axios.get('/admin/orders', {
-  //       params: { status: 'pending,confirmed,preparing,ready' }
-  //     });
-  //     setOrders(res.data.orders?.data || res.data.orders || []);
-  //   } catch (err) {
-  //     setError(err.response?.data?.message || 'Failed to load orders');
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
   const fetchAllOrders = async () => {
     setLoading(true);
     try {
-        const res = await axios.get('/admin/orders', {
-            params: {
-                status: 'pending,confirmed,preparing,ready',
-                for_schedule: true   // ← add this flag
-            }
-        });
-        setOrders(res.data.orders?.data || res.data.orders || []);
+      const res = await axios.get('/admin/orders', {
+        params: {
+          status: 'pending,confirmed,preparing,ready',
+          for_schedule: true
+        }
+      });
+      setOrders(res.data.orders?.data || res.data.orders || []);
     } catch (err) {
-        setError(err.response?.data?.message || 'Failed to load orders');
+      setError(err.response?.data?.message || 'Failed to load orders');
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -73,7 +59,6 @@ export default function AdminSchedule() {
     fetchAllOrders();
   }, []);
 
-  // Fetch orders for a clicked date
   const fetchDateOrders = async (dateStr) => {
     try {
       const res = await axios.get('/admin/schedule', { params: { date: dateStr } });
@@ -83,7 +68,6 @@ export default function AdminSchedule() {
     }
   };
 
-  // Toggle date selection
   const handleDateClick = (day) => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
@@ -91,7 +75,6 @@ export default function AdminSchedule() {
     const dateStr = toLocalDateString(clickedDate);
 
     if (selectedDate === dateStr) {
-      // Deselect
       setSelectedDate(null);
       setDateOrders([]);
     } else {
@@ -129,9 +112,8 @@ export default function AdminSchedule() {
     }
   };
 
-  // ---------- Calendar helpers ----------
   const daysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
-  const firstDayOfMonth = (year, month) => new Date(year, month, 1).getDay(); // 0 = Sunday
+  const firstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
 
   const buildCalendar = () => {
     const year = currentMonth.getFullYear();
@@ -145,11 +127,15 @@ export default function AdminSchedule() {
     return cells;
   };
 
+  // Group orders by pickup date (only confirmed, preparing, ready)
   const ordersByDate = {};
   orders.forEach(o => {
     if (o.pickup_date) {
-      if (!ordersByDate[o.pickup_date]) ordersByDate[o.pickup_date] = [];
-      ordersByDate[o.pickup_date].push(o);
+      const datePart = o.pickup_date.split('T')[0] || o.pickup_date;
+      if (['confirmed', 'preparing', 'ready'].includes(o.status)) {
+        if (!ordersByDate[datePart]) ordersByDate[datePart] = [];
+        ordersByDate[datePart].push(o);
+      }
     }
   });
 
@@ -166,10 +152,7 @@ export default function AdminSchedule() {
 
   if (loading) {
     return (
-      <div
-        style={{ background: CREAM, minHeight: '100vh' }}
-        className="flex justify-center items-center"
-      >
+      <div style={{ background: CREAM, minHeight: '100vh' }} className="flex justify-center items-center">
         <Loader className="animate-spin" style={{ color: SAGE }} size={36} />
       </div>
     );
@@ -283,16 +266,25 @@ export default function AdminSchedule() {
           position: relative;
           z-index: 1;
         }
-        .order-marker {
-          width: 7px;
-          height: 7px;
-          background: #D4A03D;
-          border-radius: 50%;
+        .order-count-badge {
           position: absolute;
-          bottom: 6px;
-          left: 50%;
-          transform: translateX(-50%);
-          box-shadow: 0 0 0 2px #fff;
+          bottom: 4px;
+          right: 4px;
+          background: ${SAGE};
+          color: #fff;
+          font-size: 0.6rem;
+          font-weight: 700;
+          padding: 2px 7px;
+          border-radius: 999px;
+          min-width: 22px;
+          text-align: center;
+          box-shadow: 0 2px 6px rgba(79,95,82,0.25);
+          line-height: 1.4;
+          white-space: nowrap;
+        }
+        .day-cell.selected .order-count-badge {
+          background: #fff;
+          color: ${SAGE};
         }
         .order-card {
           background: #fff;
@@ -347,7 +339,6 @@ export default function AdminSchedule() {
       `}</style>
 
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-3">
             <div
@@ -370,7 +361,6 @@ export default function AdminSchedule() {
           </div>
         </div>
 
-        {/* Notification */}
         {notification && (
           <div
             className="notification"
@@ -404,10 +394,8 @@ export default function AdminSchedule() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Calendar Section */}
           <div className="lg:col-span-2">
             <div className="calendar-wrapper">
-              {/* Month Header */}
               <div className="calendar-month-header">
                 <button className="nav-btn" onClick={goToPrevMonth}>
                   <ChevronLeft size={20} />
@@ -418,16 +406,12 @@ export default function AdminSchedule() {
                 </button>
               </div>
 
-              {/* Weekday Labels */}
               <div className="calendar-weekdays">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                  <div key={d} className="weekday-label">
-                    {d}
-                  </div>
+                  <div key={d} className="weekday-label">{d}</div>
                 ))}
               </div>
 
-              {/* Calendar Grid */}
               <div className="calendar-grid">
                 {calendarCells.map((day, idx) => {
                   if (day === null)
@@ -438,9 +422,9 @@ export default function AdminSchedule() {
                   const dateStr = toLocalDateString(new Date(year, month, day));
                   const isToday = dateStr === toLocalDateString(new Date());
                   const isSelected = selectedDate === dateStr;
-                  const hasScheduledOrders = ordersByDate[dateStr]?.some(o =>
-                    ['confirmed', 'preparing', 'ready'].includes(o.status)
-                  );
+
+                  const ordersOnDate = ordersByDate[dateStr] || [];
+                  const orderCount = ordersOnDate.length;
 
                   return (
                     <div
@@ -451,7 +435,11 @@ export default function AdminSchedule() {
                       onClick={() => handleDateClick(day)}
                     >
                       <span className="day-number">{day}</span>
-                      {hasScheduledOrders && <span className="order-marker" />}
+                      {orderCount > 0 && (
+                        <span className="order-count-badge">
+                          {orderCount} {orderCount === 1 ? 'order' : 'orders'}
+                        </span>
+                      )}
                     </div>
                   );
                 })}
@@ -459,7 +447,6 @@ export default function AdminSchedule() {
             </div>
           </div>
 
-          {/* Orders on Selected Date */}
           <div className="lg:col-span-1">
             <div
               className="bg-white rounded-2xl shadow-sm border p-6"

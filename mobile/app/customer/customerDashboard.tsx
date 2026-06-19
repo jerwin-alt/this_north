@@ -96,8 +96,10 @@ interface Order {
   order_number: string;
   total_amount: number;
   status: string;
+  payment_status: string;
   pickup_date: string;
   created_at: string;
+  notes?: string; // Added for rejection reason
   items?: Array<{
     menu: { name: string; image_url?: string; base_price: number };
     quantity: number;
@@ -184,6 +186,10 @@ export default function CustomerDashboard() {
   const [paymentMethod, setPaymentMethod] = useState("gcash");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [submittingPayment, setSubmittingPayment] = useState(false);
+
+  // ── Stock error modal state ──
+  const [stockErrorModalVisible, setStockErrorModalVisible] = useState(false);
+  const [stockErrorMessages, setStockErrorMessages] = useState<string[]>([]);
 
   // ── Fetch functions ──
   const fetchCategories = async () => {
@@ -302,7 +308,7 @@ export default function CustomerDashboard() {
     Alert.alert("Added to cart", `${selectedProduct.name} has been added.`);
   };
 
-  // ── Submit payment after order creation ──
+  // ── Submit payment after order creation (unchanged) ──
   const submitPayment = async () => {
     if (!pendingOrder) return;
 
@@ -328,15 +334,14 @@ export default function CustomerDashboard() {
       });
 
       Alert.alert(
-        "Order Placed! 🎉",
+        "Payment Successful 🎉",
         `Your ${paymentOption === "down" ? "30% down payment" : "full payment"} has been received. Your order is now pending approval.`
       );
       setShowPaymentModal(false);
       setPendingOrder(null);
       setReferenceNumber("");
-      setCart([]);
-      setOrderNotes("");
-      if (activeTab === "orders") fetchOrders();
+      // Refresh orders
+      fetchOrders();
     } catch (err: any) {
       Alert.alert("Payment Failed", err.response?.data?.message || "Could not process payment. Please try again.");
     } finally {
@@ -344,7 +349,7 @@ export default function CustomerDashboard() {
     }
   };
 
-  // ── Create order and show payment modal (cart) ──
+  // ── Place Order (Modified) ──────────────────────
   const placeOrder = async () => {
     if (cart.length === 0) {
       Alert.alert("Cart empty", "Please add items to your order");
@@ -378,18 +383,37 @@ export default function CustomerDashboard() {
         notes: orderNotes,
       });
 
-      const newOrder = orderResponse.data.order;
-      setPendingOrder(newOrder);
-      setPlacingOrder(false);
-      setShowCart(false); // close cart modal
-      setShowPaymentModal(true); // show payment modal
+      // ✅ Success: order placed, no payment modal. Switch to orders tab.
+      Alert.alert(
+        "Order Submitted!",
+        "Your order has been placed and is pending admin approval. You will be able to pay once it is confirmed.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              setCart([]);
+              setOrderNotes("");
+              setShowCart(false);
+              setActiveTab("orders");
+              fetchOrders(); // refresh orders list
+            },
+          },
+        ]
+      );
     } catch (err: any) {
+      // Check if it's a stock validation error (422 with errors array)
+      if (err.response?.status === 422 && err.response?.data?.errors) {
+        setStockErrorMessages(err.response.data.errors);
+        setStockErrorModalVisible(true);
+      } else {
+        Alert.alert("Error", err.response?.data?.message || "Failed to create order");
+      }
+    } finally {
       setPlacingOrder(false);
-      Alert.alert("Error", err.response?.data?.message || "Failed to create order");
     }
   };
 
-  // ── Create order and show payment modal (order now) ──
+  // ── Order Now (immediate order from product modal) ──
   const orderNow = async () => {
     if (!selectedProduct) return;
     if (!pickupDate || !pickupTime) {
@@ -422,14 +446,30 @@ export default function CustomerDashboard() {
         notes: orderNotes,
       });
 
-      const newOrder = orderResponse.data.order;
-      setPendingOrder(newOrder);
-      setPlacingOrder(false);
-      setProductModalVisible(false);
-      setShowPaymentModal(true);
+      // Success: close modal, show alert, switch to orders tab
+      Alert.alert(
+        "Order Submitted!",
+        "Your order has been placed and is pending admin approval. You will be able to pay once it is confirmed.",
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              setProductModalVisible(false);
+              setActiveTab("orders");
+              fetchOrders();
+            },
+          },
+        ]
+      );
     } catch (err: any) {
+      if (err.response?.status === 422 && err.response?.data?.errors) {
+        setStockErrorMessages(err.response.data.errors);
+        setStockErrorModalVisible(true);
+      } else {
+        Alert.alert("Error", err.response?.data?.message || "Failed to create order");
+      }
+    } finally {
       setPlacingOrder(false);
-      Alert.alert("Error", err.response?.data?.message || "Failed to create order");
     }
   };
 
@@ -539,7 +579,16 @@ export default function CustomerDashboard() {
           </View>
         );
       }
-      case "orders":
+      case "orders": {
+        // Determine if an order is payable (approved but not paid)
+        const isPayable = (order: Order) => {
+          return (
+            order.status !== "pending" &&
+            order.status !== "cancelled" &&
+            order.payment_status !== "paid"
+          );
+        };
+
         return (
           <View style={s.tabContent}>
             <View style={s.tabHeader}>
@@ -604,11 +653,33 @@ export default function CustomerDashboard() {
                     </Text>
                     <Text style={s.orderTotalLabel}>Total</Text>
                   </View>
+
+                  {/* ── Display rejection reason if cancelled ── */}
+                  {order.status === 'cancelled' && order.notes && (
+                    <View style={{ marginTop: 8, marginHorizontal: 14, padding: 10, backgroundColor: '#FEF2F2', borderRadius: 8, borderWidth: 1, borderColor: '#FEE2E2' }}>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#DC2626' }}>Rejected</Text>
+                      <Text style={{ fontSize: 13, color: SAGE, marginTop: 2 }}>{order.notes.replace('[REJECTED]: ', '')}</Text>
+                    </View>
+                  )}
+
+                  {/* ✅ Pay button – only shown if approved & not fully paid */}
+                  {isPayable(order) && (
+                    <TouchableOpacity
+                      style={s.payButton}
+                      onPress={() => {
+                        setPendingOrder(order);
+                        setShowPaymentModal(true);
+                      }}
+                    >
+                      <Text style={s.payButtonText}>Pay Now</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ))
             )}
           </View>
         );
+      }
       case "notifications":
         return (
           <View style={s.tabContent}>
@@ -964,7 +1035,7 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
-      {/* ══ Cart Modal (unchanged) ══ */}
+      {/* ══ Cart Modal ══ */}
       <Modal visible={showCart} animationType="slide" transparent>
         <View style={s.cartOverlay}>
           <View style={s.cartSheet}>
@@ -1077,7 +1148,7 @@ export default function CustomerDashboard() {
                       {placingOrder ? (
                         <ActivityIndicator color="#fff" size="small" />
                       ) : (
-                        <Text style={s.placeOrderText}>Proceed to Payment</Text>
+                        <Text style={s.placeOrderText}>Place Order</Text>
                       )}
                     </LinearGradient>
                   </TouchableOpacity>
@@ -1088,7 +1159,7 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
-      {/* ══ Payment Modal (30% Down or Full) ══ */}
+      {/* ══ Payment Modal (used for approved orders) ══ */}
       <Modal visible={showPaymentModal} animationType="slide" transparent>
         <View style={s.modalOverlay}>
           <View style={s.paymentSheet}>
@@ -1173,6 +1244,34 @@ export default function CustomerDashboard() {
                 </LinearGradient>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Stock Error Modal ── */}
+      <Modal
+        visible={stockErrorModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setStockErrorModalVisible(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.stockErrorModal}>
+            <View style={s.stockErrorHeader}>
+              <Ionicons name="alert-circle" size={24} color="#EF4444" />
+              <Text style={s.stockErrorTitle}>Insufficient Stock</Text>
+            </View>
+            <View style={s.stockErrorBody}>
+              {stockErrorMessages.map((msg, idx) => (
+                <Text key={idx} style={s.stockErrorText}>{msg}</Text>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={s.stockErrorButton}
+              onPress={() => setStockErrorModalVisible(false)}
+            >
+              <Text style={s.stockErrorButtonText}>OK</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1449,6 +1548,21 @@ const s = StyleSheet.create({
   },
   orderTotal: { fontSize: 18, fontWeight: "800", color: SAGE, letterSpacing: -0.5 },
   orderTotalLabel: { fontSize: 11, color: MUTED_GRAY, fontWeight: "500" },
+
+  // Pay button
+  payButton: {
+    marginHorizontal: 14,
+    marginBottom: 14,
+    paddingVertical: 10,
+    backgroundColor: SAGE,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  payButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
+  },
 
   // Loader / empty states
   loaderWrap: { alignItems: "center", paddingTop: 48, gap: 10 },
@@ -2006,5 +2120,51 @@ const s = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     letterSpacing: 0.3,
+  },
+
+  // ── Stock Error Modal Styles ──
+  stockErrorModal: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 24,
+    width: "85%",
+    maxWidth: 340,
+    alignSelf: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  stockErrorHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 16,
+  },
+  stockErrorTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: SAGE,
+  },
+  stockErrorBody: {
+    marginBottom: 20,
+    gap: 6,
+  },
+  stockErrorText: {
+    fontSize: 14,
+    color: SAGE,
+    lineHeight: 20,
+  },
+  stockErrorButton: {
+    backgroundColor: SAGE,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  stockErrorButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
   },
 });

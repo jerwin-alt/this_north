@@ -1,3 +1,5 @@
+// web/src/pages/Orders.jsx
+
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from '/api/axios';
 import {
@@ -45,17 +47,20 @@ export default function Orders() {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
-const extractOrdersArray = (responseData) => {
-  if (Array.isArray(responseData)) return responseData;
-  // If responseData.data is an array (direct array of orders)
-  if (responseData?.data && Array.isArray(responseData.data)) return responseData.data;
-  // If responseData.orders exists (paginator), take orders.data
-  if (responseData?.orders) {
-    if (Array.isArray(responseData.orders)) return responseData.orders;
-    if (responseData.orders?.data && Array.isArray(responseData.orders.data)) return responseData.orders.data;
-  }
-  return [];
-};
+  // ── NEW: Rejection Modal state ──
+  const [rejectModal, setRejectModal] = useState({ show: false, orderId: null });
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejecting, setRejecting] = useState(false);
+
+  const extractOrdersArray = (responseData) => {
+    if (Array.isArray(responseData)) return responseData;
+    if (responseData?.data && Array.isArray(responseData.data)) return responseData.data;
+    if (responseData?.orders) {
+      if (Array.isArray(responseData.orders)) return responseData.orders;
+      if (responseData.orders?.data && Array.isArray(responseData.orders.data)) return responseData.orders.data;
+    }
+    return [];
+  };
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -96,20 +101,8 @@ const extractOrdersArray = (responseData) => {
     }
   };
 
-  const handleReject = async (orderId) => {
-    if (!window.confirm('Reject this order? This will cancel the order.')) return;
-    setActionLoading(orderId);
-    try {
-      await axios.put(`/admin/orders/${orderId}/reject`);
-      await fetchOrders();
-      alert('Order rejected (cancelled).');
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.message || 'Failed to reject order.');
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  // ── OLD handleReject function removed – replaced by modal ──
+  // We keep the modal logic below.
 
   const openScheduleModal = (order) => {
     setScheduleModal({ show: true, order });
@@ -119,11 +112,23 @@ const extractOrdersArray = (responseData) => {
     });
   };
 
+  // ─── FIXED: Append seconds to time if missing ───
   const handleScheduleSave = async () => {
     if (!scheduleModal.order) return;
     setSavingSchedule(true);
     try {
-      await axios.put(`/admin/orders/${scheduleModal.order.id}/schedule`, scheduleForm);
+      let formattedTime = scheduleForm.pickup_time;
+      // If time is in HH:mm format (no seconds), add ":00"
+      if (formattedTime && formattedTime.split(':').length === 2) {
+        formattedTime = `${formattedTime}:00`;
+      }
+
+      const payload = {
+        pickup_date: scheduleForm.pickup_date,
+        pickup_time: formattedTime,
+      };
+
+      await axios.put(`/admin/orders/${scheduleModal.order.id}/schedule`, payload);
       await fetchOrders();
       setScheduleModal({ show: false, order: null });
       alert('Schedule updated successfully.');
@@ -140,9 +145,7 @@ const extractOrdersArray = (responseData) => {
       <div style={{ background: CREAM, minHeight: '100vh' }} className="flex justify-center items-center h-64">
         <div className="flex flex-col items-center gap-3">
           <Loader className="animate-spin" style={{ color: SAGE }} size={36} />
-          <p style={{ color: MUTED_GRAY, fontSize: '0.85rem', letterSpacing: '0.05em' }}>
-            Loading orders…
-          </p>
+          <p style={{ color: MUTED_GRAY, fontSize: '0.85rem', letterSpacing: '0.05em' }}>Loading orders…</p>
         </div>
       </div>
     );
@@ -499,8 +502,9 @@ const extractOrdersArray = (responseData) => {
                                       <CheckCircle size={14} />
                                     )}
                                   </button>
+                                  {/* ── Reject button opens modal ── */}
                                   <button
-                                    onClick={() => handleReject(order.id)}
+                                    onClick={() => setRejectModal({ show: true, orderId: order.id })}
                                     disabled={actionLoading === order.id}
                                     className="action-btn p-1.5 rounded-lg"
                                     style={{
@@ -667,6 +671,7 @@ const extractOrdersArray = (responseData) => {
                     color: SAGE,
                     background: '#fafafa',
                   }}
+                  step="60"
                 />
               </div>
 
@@ -695,6 +700,135 @@ const extractOrdersArray = (responseData) => {
                 >
                   {savingSchedule ? <Loader size={15} className="animate-spin" /> : <Check size={16} />}
                   {savingSchedule ? 'Saving…' : 'Save Schedule'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── NEW: Rejection Modal ── */}
+      {rejectModal.show && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(30,35,30,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 50,
+            padding: 16,
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          <div
+            className="anim-modal"
+            style={{
+              background: '#fff',
+              borderRadius: 22,
+              width: '100%',
+              maxWidth: 480,
+              boxShadow: '0 24px 60px rgba(79,95,82,0.18)',
+              border: '1px solid rgba(242,237,228,0.8)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '20px 24px',
+                borderBottom: `1px solid ${CREAM}`,
+                background: `linear-gradient(135deg, rgba(79,95,82,0.04), rgba(255,243,217,0.3))`,
+              }}
+            >
+              <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.1rem' }}>Reject Order</h3>
+              <button
+                onClick={() => {
+                  setRejectModal({ show: false, orderId: null });
+                  setRejectReason('');
+                }}
+                style={{
+                  color: MUTED_GRAY,
+                  padding: 7,
+                  borderRadius: 10,
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: '24px' }}>
+              <p style={{ marginBottom: 16, color: SAGE, fontSize: '0.95rem' }}>
+                Please provide a reason for rejecting this order.
+              </p>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Enter rejection reason..."
+                rows={4}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: 12,
+                  border: '1.5px solid rgba(166,162,154,0.3)',
+                  color: SAGE,
+                  fontSize: '0.9rem',
+                  resize: 'vertical',
+                  minHeight: '100px',
+                  outline: 'none',
+                }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
+                <button
+                  onClick={() => {
+                    setRejectModal({ show: false, orderId: null });
+                    setRejectReason('');
+                  }}
+                  className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium"
+                  style={{
+                    borderColor: 'rgba(166,162,154,0.3)',
+                    color: MUTED_GRAY,
+                    background: 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!rejectReason.trim()) {
+                      alert('Please provide a rejection reason.');
+                      return;
+                    }
+                    setRejecting(true);
+                    try {
+                      await axios.put(`/admin/orders/${rejectModal.orderId}/reject`, {
+                        reason: rejectReason.trim(),
+                      });
+                      await fetchOrders();
+                      setRejectModal({ show: false, orderId: null });
+                      setRejectReason('');
+                      alert('Order rejected successfully.');
+                    } catch (err) {
+                      alert(err.response?.data?.message || 'Failed to reject order.');
+                    } finally {
+                      setRejecting(false);
+                    }
+                  }}
+                  disabled={rejecting}
+                  className="primary-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-50"
+                  style={{
+                    background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {rejecting ? <Loader size={15} className="animate-spin" /> : 'Confirm Rejection'}
                 </button>
               </div>
             </div>

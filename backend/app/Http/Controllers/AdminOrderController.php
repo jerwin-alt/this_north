@@ -17,9 +17,8 @@ class AdminOrderController extends Controller
     public function index(Request $request)
     {
         $query = Order::with(['items.menu:id,name,base_price,menu_type', 'customer:id,first_name,last_name,phone'])
-            ->whereNotNull('pickup_date')
-            ->orderBy('pickup_date')
-            ->orderBy('pickup_time');
+        ->whereNotNull('pickup_date')
+        ->orderBy('order_date', 'desc');   // most recent first
 
         // ----- Status filter (supports comma‑separated string) -----
         if ($request->filled('status')) {
@@ -46,7 +45,7 @@ class AdminOrderController extends Controller
             $orders = $query->get();
         } else {
             // Regular admin orders list – keep pagination and include walk‑ins
-            $orders = $query->paginate(50);
+            $orders = $query->paginate(100);
         }
 
         return response()->json([
@@ -130,7 +129,7 @@ class AdminOrderController extends Controller
     /**
      * Reject an order – set status to cancelled.
      */
-    public function reject($id)
+     public function reject(Request $request, $id) 
     {
         // $order = Order::findOrFail($id);
         // if (!in_array($order->status, ['pending', 'confirmed'])) {
@@ -139,6 +138,12 @@ class AdminOrderController extends Controller
 
         $order = Order::findOrFail($id);
 
+        // Validate that a reason is provided
+        $request->validate([
+            'reason' => 'required|string|max:1000',
+        ]);
+
+        // Walk‑in orders cannot be rejected by admin
         if ($order->customer_id === null) {
             return response()->json([
                 'message' => 'Walk‑in orders cannot be rejected by admin.'
@@ -146,41 +151,32 @@ class AdminOrderController extends Controller
         }
 
         if (!in_array($order->status, ['pending', 'confirmed'])) {
-            return response()->json(['message' => 'Only pending or confirmed orders can be rejected'], 422);
+            return response()->json([
+                'message' => 'Only pending or confirmed orders can be rejected'
+            ], 422);
         }
+
+        // Append the rejection reason to the notes (preserve original notes)
+        $reason = $request->reason;
+        $oldNotes = $order->notes ?? '';
+        $order->notes = $oldNotes
+            ? $oldNotes . "\n[REJECTED]: " . $reason
+            : "[REJECTED]: " . $reason;
 
         $order->status = 'cancelled';
         $order->save();
 
+        // Log the activity (optional)
         UserActivityLog::create([
             'user_id'       => auth()->id(),
             'activity_type' => 'order_cancelled',
             'reference_id'  => $order->id,
-            'details'       => "Order {$order->order_number} rejected by admin",
+            'details'       => "Order {$order->order_number} rejected. Reason: {$reason}",
         ]);
 
         return response()->json([
             'message' => 'Order rejected successfully.',
             'order'   => $order->fresh(),
-        ]);
-    }
-
-    /**
-     * Get all orders for a specific date (used by calendar).
-     */
-    public function byDate(Request $request)
-    {
-        $date = $request->input('date');
-        $orders = Order::with(['items.menu:id,name,base_price'])
-            ->whereDate('pickup_date', $date)
-            ->whereIn('status', ['confirmed', 'preparing', 'ready'])
-            ->whereNotNull('customer_id')   // ← exclude walk‑ins
-            ->orderBy('pickup_time')
-            ->get();
-
-        return response()->json([
-            'orders' => $orders,
-            'date'   => $date,
         ]);
     }
 

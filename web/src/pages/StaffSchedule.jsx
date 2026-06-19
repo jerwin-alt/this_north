@@ -1,9 +1,10 @@
+// web/src/pages/StaffSchedule.jsx
 
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
 import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock,
-  Loader
+  Loader, AlertCircle
 } from 'lucide-react';
 
 const SAGE = '#4F5F52';
@@ -19,7 +20,7 @@ const statusColors = {
   cancelled: '#C75B5B',
 };
 
-// Helper to format date as YYYY-MM-DD in local time (Philippines)
+// Helper to format a date as YYYY-MM-DD in LOCAL time (Philippines)
 const toLocalDateString = (date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -36,34 +37,20 @@ export default function StaffSchedule() {
   const [error, setError] = useState(null);
 
   // Fetch all confirmed/preparing/ready orders (for markers)
-  // const fetchAllOrders = async () => {
-  //   setLoading(true);
-  //   try {
-  //     const res = await axios.get('/staff/orders', {
-  //       params: { status: 'confirmed,preparing,ready' }
-  //     });
-  //     setOrders(res.data.orders?.data || res.data.orders || []);
-  //   } catch (err) {
-  //     setError(err.response?.data?.message || 'Failed to load schedule');
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
   const fetchAllOrders = async () => {
     setLoading(true);
     try {
-        const res = await axios.get('/staff/orders', {
-            params: {
-                status: 'confirmed,preparing,ready',
-                for_schedule: true   // ← add this flag
-            }
-        });
-        setOrders(res.data.orders?.data || res.data.orders || []);
+      const res = await axios.get('/staff/orders', {
+        params: {
+          status: 'confirmed,preparing,ready',
+          for_schedule: true
+        }
+      });
+      setOrders(res.data.orders?.data || res.data.orders || []);
     } catch (err) {
-        setError(err.response?.data?.message || 'Failed to load schedule');
+      setError(err.response?.data?.message || 'Failed to load schedule');
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -114,11 +101,16 @@ export default function StaffSchedule() {
     return cells;
   };
 
+  // Group orders by pickup date (only confirmed, preparing, ready)
   const ordersByDate = {};
   orders.forEach(o => {
     if (o.pickup_date) {
-      if (!ordersByDate[o.pickup_date]) ordersByDate[o.pickup_date] = [];
-      ordersByDate[o.pickup_date].push(o);
+      // Extract only the date part (YYYY-MM-DD) from the ISO string
+      const datePart = o.pickup_date.split('T')[0] || o.pickup_date;
+      if (['confirmed', 'preparing', 'ready'].includes(o.status)) {
+        if (!ordersByDate[datePart]) ordersByDate[datePart] = [];
+        ordersByDate[datePart].push(o);
+      }
     }
   });
 
@@ -262,16 +254,25 @@ export default function StaffSchedule() {
           position: relative;
           z-index: 1;
         }
-        .order-marker {
-          width: 7px;
-          height: 7px;
-          background: #D4A03D;
-          border-radius: 50%;
+        .order-count-badge {
           position: absolute;
-          bottom: 6px;
-          left: 50%;
-          transform: translateX(-50%);
-          box-shadow: 0 0 0 2px #fff;
+          bottom: 4px;
+          right: 4px;
+          background: ${SAGE};
+          color: #fff;
+          font-size: 0.6rem;
+          font-weight: 700;
+          padding: 2px 7px;
+          border-radius: 999px;
+          min-width: 22px;
+          text-align: center;
+          box-shadow: 0 2px 6px rgba(79,95,82,0.25);
+          line-height: 1.4;
+          white-space: nowrap;
+        }
+        .day-cell.selected .order-count-badge {
+          background: #fff;
+          color: ${SAGE};
         }
         .order-card {
           background: #fff;
@@ -337,9 +338,9 @@ export default function StaffSchedule() {
                   const dateStr = toLocalDateString(new Date(year, month, day));
                   const isToday = dateStr === toLocalDateString(new Date());
                   const isSelected = selectedDate === dateStr;
-                  const hasScheduledOrders = ordersByDate[dateStr]?.some(o =>
-                    ['confirmed', 'preparing', 'ready'].includes(o.status)
-                  );
+
+                  const ordersOnDate = ordersByDate[dateStr] || [];
+                  const orderCount = ordersOnDate.length;
 
                   return (
                     <div
@@ -350,7 +351,11 @@ export default function StaffSchedule() {
                       onClick={() => handleDateClick(day)}
                     >
                       <span className="day-number">{day}</span>
-                      {hasScheduledOrders && <span className="order-marker" />}
+                      {orderCount > 0 && (
+                        <span className="order-count-badge">
+                          {orderCount} {orderCount === 1 ? 'order' : 'orders'}
+                        </span>
+                      )}
                     </div>
                   );
                 })}

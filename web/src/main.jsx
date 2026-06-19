@@ -21,6 +21,7 @@ import StaffOrders from './pages/StaffOrders.jsx'; // create this too
 import StaffDiscounts from './pages/StaffDiscounts.jsx'; 
 import StaffProducts from './pages/StaffProducts.jsx';
 import StaffSchedule from './pages/StaffSchedule.jsx';
+import StaffMenu from './pages/StaffMenu.jsx';
 
 
 
@@ -50,6 +51,7 @@ createRoot(document.getElementById('root')).render(
 
           <Route path="/pages/staff-dashboard" element={<StaffDashboard />}>
             <Route index element={<StaffOverview />} />
+            <Route path="menu" element={<StaffMenu />} />
             <Route path="orders" element={<StaffOrders />} />
             <Route path="discounts" element={<StaffDiscounts />} /> 
             <Route path="products" element={<StaffProducts />} />
