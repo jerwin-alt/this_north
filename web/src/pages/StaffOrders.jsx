@@ -1,3 +1,4 @@
+// src/pages/StaffOrders.jsx
 
 import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
@@ -126,33 +127,13 @@ export default function StaffOrders() {
     const transitions = {
       pending: { confirmed: 'Confirm', cancelled: 'Cancel' },
       confirmed: { preparing: 'Start Preparing', cancelled: 'Cancel' },
-      preparing: { ready: 'Mark Ready', cancelled: 'Cancel' },
+      preparing: { ready: 'Ready', cancelled: 'Cancel' },
       ready: { completed: 'Complete' },
       completed: {},
       cancelled: {},
     };
     return transitions[order.status] || {};
   };
-
-//   const nextStatuses = (order) => {
-//     const isCustomerOrder = order.customer_id !== null;
-//     const transitions = {
-//         pending: { confirmed: 'Confirm', cancelled: 'Cancel' },
-//         confirmed: { preparing: 'Start Preparing', cancelled: 'Cancel' },
-//         preparing: { ready: 'Mark Ready', cancelled: 'Cancel' },
-//         ready: { completed: 'Complete' },
-//         completed: {},
-//         cancelled: {},
-//     };
-
-//     let available = { ...transitions[order.status] };
-//     if (isCustomerOrder) {
-//         // Customer orders: staff cannot confirm or cancel
-//         delete available.confirmed;
-//         delete available.cancelled;
-//     }
-//     return available;
-// };
 
   const handleStatusChange = async (orderId, newStatus) => {
     try {
@@ -190,8 +171,8 @@ export default function StaffOrders() {
         .divider-line { height: 1px; background: linear-gradient(90deg, transparent, rgba(79,95,82,0.15), transparent); }
         .order-row { transition: background 0.15s ease; }
         .order-row:hover { background: rgba(242,237,228,0.7) !important; }
-        .action-btn { transition: all 0.18s ease; border-radius: 10px; border: none; cursor: pointer; }
-        .action-btn:hover { transform: scale(1.12); }
+        .action-btn { transition: all 0.18s ease; border: none; cursor: pointer; }
+        .action-btn:hover { transform: scale(1.05); }
         .primary-btn { position: relative; overflow: hidden; transition: all 0.22s cubic-bezier(0.4,0,0.2,1); border: none; cursor: pointer; }
         .primary-btn::before { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.1); opacity: 0; transition: opacity 0.2s; }
         .primary-btn:hover::before { opacity: 1; }
@@ -281,14 +262,108 @@ export default function StaffOrders() {
                           {order.items?.map(item => (<span key={item.id} style={{ display: 'inline-block', background: 'rgba(79,95,82,0.07)', color: SAGE, borderRadius: 5, padding: '2px 6px', fontSize: '0.72rem', marginBottom: 2 }}>{item.menu?.name} ×{item.quantity}</span>))}
                         </div>
                       </td>
-                      <td style={{ padding: '13px 20px' }}>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {Object.entries(nextStatuses(order)).map(([newStatus, label]) => (
-                            <button key={newStatus} onClick={() => newStatus === 'cancelled' ? setConfirmCancel(order) : handleStatusChange(order.id, newStatus)} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: statusBg[newStatus] || 'rgba(79,95,82,0.07)', color: statusColors[newStatus] || SAGE, border: `1px solid ${statusColors[newStatus]}33` }}>
-                              {newStatus === 'cancelled' ? <Ban size={12} className="mr-1 inline" /> : <Play size={12} className="mr-1 inline" />}
-                              {label}
-                            </button>
-                          ))}
+
+                      {/* ── ACTIONS COLUMN – Primary left, Cancel right ── */}
+                      <td style={{ padding: '6px 10px', verticalAlign: 'middle' }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '6px',
+                          minWidth: '200px',
+                        }}>
+                          {/* Left: Primary action (Confirm, Start Preparing, Ready, Complete) */}
+                          <div style={{ flex: '0 0 130px', textAlign: 'left' }}>
+                            {Object.entries(nextStatuses(order))
+                              .filter(([status]) => status !== 'cancelled')
+                              .map(([newStatus, label]) => {
+                                let bgColor = statusBg[newStatus] || 'rgba(79,95,82,0.07)';
+                                let textColor = statusColors[newStatus] || SAGE;
+                                let borderColor = statusColors[newStatus] ? `${statusColors[newStatus]}44` : 'rgba(79,95,82,0.15)';
+
+                                if (newStatus === 'confirmed') {
+                                  bgColor = SAGE; textColor = '#fff'; borderColor = SAGE;
+                                } else if (newStatus === 'preparing') {
+                                  bgColor = '#7A5B8A'; textColor = '#fff'; borderColor = '#7A5B8A';
+                                } else if (newStatus === 'ready') {
+                                  bgColor = '#5B8A5E'; textColor = '#fff'; borderColor = '#5B8A5E';
+                                } else if (newStatus === 'completed') {
+                                  bgColor = SAGE; textColor = '#fff'; borderColor = SAGE;
+                                }
+
+                                return (
+                                  <button
+                                    key={newStatus}
+                                    onClick={() => handleStatusChange(order.id, newStatus)}
+                                    className="action-btn"
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                      padding: '4px 12px',
+                                      borderRadius: '16px',
+                                      fontSize: '0.7rem',
+                                      fontWeight: 600,
+                                      letterSpacing: '0.02em',
+                                      background: bgColor,
+                                      color: textColor,
+                                      border: `1.5px solid ${borderColor}`,
+                                      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                      transition: 'all 0.15s ease',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.transform = 'translateY(-2px) scale(1.03)';
+                                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.12)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.transform = 'none';
+                                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
+                                    }}
+                                  >
+                                    <Play size={11} strokeWidth={2.2} />
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                          </div>
+
+                          {/* Right: Cancel button */}
+                          <div style={{ flex: '0 0 80px', textAlign: 'right' }}>
+                            {nextStatuses(order).cancelled && (
+                              <button
+                                onClick={() => setConfirmCancel(order)}
+                                className="action-btn"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  padding: '4px 10px',
+                                  borderRadius: '16px',
+                                  fontSize: '0.7rem',
+                                  fontWeight: 600,
+                                  letterSpacing: '0.02em',
+                                  background: '#C75B5B',
+                                  color: '#fff',
+                                  border: '1.5px solid #C75B5B',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                  whiteSpace: 'nowrap',
+                                  transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.transform = 'translateY(-2px) scale(1.03)';
+                                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.12)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.transform = 'none';
+                                  e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
+                                }}
+                              >
+                                <Ban size={11} strokeWidth={2.2} />
+                                Cancel
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>

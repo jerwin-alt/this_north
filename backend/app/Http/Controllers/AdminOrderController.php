@@ -239,4 +239,24 @@ class AdminOrderController extends Controller
             'order'   => $order->fresh('items.menu'),
         ]);
     }
+
+        public function byDate(Request $request)
+    {
+        $date = $request->input('date');
+
+        $orders = Order::with([
+            'items.menu:id,name,base_price',
+            'customer:id,first_name,last_name,phone'
+        ])
+            ->whereDate('pickup_date', $date)
+            ->whereIn('status', ['confirmed', 'preparing', 'ready'])
+            ->whereNotNull('customer_id')   // exclude walk‑in orders
+            ->orderBy('pickup_time')
+            ->get();
+
+        return response()->json([
+            'orders' => $orders,
+            'date'   => $date,
+        ]);
+    }
 }

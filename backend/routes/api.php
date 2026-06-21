@@ -189,7 +189,6 @@ Route::middleware(['auth:sanctum', 'staff'])->prefix('staff')->group(function ()
 
     // Staff schedule view (read-only)
     Route::get('schedule', [AdminOrderController::class, 'byDate']);
-
     // Route::get('orders', [App\Http\Controllers\StaffOrderController::class, 'index']);
     // Route::get('orders/{id}', [App\Http\Controllers\StaffOrderController::class, 'show']);
     // Route::put('orders/{id}/status', [App\Http\Controllers\StaffOrderController::class, 'updateStatus']);

@@ -270,7 +270,7 @@ export default function StaffProducts() {
                 <div style={{ aspectRatio: '4/3', background: CREAM, position: 'relative', overflow: 'hidden' }}>
                   {product.image_url ? (
                     <img
-                      src={product.image_url.startsWith('http') ? product.image_url : `http://127.0.0.1:8000${product.image_url}`}
+                      src={product.image_url.startsWith('http') ? product.image_url : `http://10.67.144.170:8000${product.image_url}`}
                       alt={product.name}
                       className="product-card-img w-full h-full object-cover"
                     />
