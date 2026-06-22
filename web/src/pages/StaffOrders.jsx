@@ -28,6 +28,14 @@ const statusBg = {
   cancelled: 'rgba(199,91,91,0.1)',
 };
 
+// Helper to format date to YYYY-MM-DD
+const formatDate = (dateStr) => {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-CA');
+};
+
 export default function StaffOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -75,7 +83,6 @@ export default function StaffOrders() {
 
   useEffect(() => { fetchOrders(); fetchMenu(); }, [statusFilter, search]);
 
-  // --- Create Order Handlers ---
   const addItemToCreate = () => setCreateForm(prev => ({
     ...prev, items: [...prev.items, { menu_id: '', quantity: 1 }]
   }));
@@ -107,7 +114,6 @@ export default function StaffOrders() {
     }
   };
 
-  // --- Cancel Order ---
   const handleCancel = async () => {
     if (!confirmCancel) return;
     setSubmitting(true);
@@ -122,7 +128,6 @@ export default function StaffOrders() {
     }
   };
 
-  // --- Status Transitions ---
   const nextStatuses = (order) => {
     const transitions = {
       pending: { confirmed: 'Confirm', cancelled: 'Cancel' },
@@ -249,7 +254,20 @@ export default function StaffOrders() {
                       </td>
                       <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{new Date(order.order_date).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
                       <td style={{ padding: '13px 20px', whiteSpace: 'nowrap' }}>
-                        {order.pickup_date ? (<div><span style={{ color: SAGE, fontWeight: 600 }}>{order.pickup_date}</span>{order.pickup_time && <span style={{ color: MUTED_GRAY, marginLeft: 4 }}>{order.pickup_time.slice(0, 5)}</span>}</div>) : <span style={{ color: MUTED_GRAY, fontSize: '0.78rem' }}>—</span>}
+                        {order.pickup_date ? (
+                          <div>
+                            <span style={{ color: SAGE, fontWeight: 600 }}>
+                              {formatDate(order.pickup_date)}
+                            </span>
+                            {order.pickup_time && (
+                              <span style={{ color: MUTED_GRAY, marginLeft: 4 }}>
+                                {order.pickup_time.slice(0, 5)}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{ color: MUTED_GRAY, fontSize: '0.78rem' }}>—</span>
+                        )}
                       </td>
                       <td style={{ padding: '13px 20px', fontWeight: 700, color: SAGE, whiteSpace: 'nowrap' }}>₱{parseFloat(order.total_amount).toLocaleString()}</td>
                       <td style={{ padding: '13px 20px' }}>
@@ -263,7 +281,7 @@ export default function StaffOrders() {
                         </div>
                       </td>
 
-                      {/* ── ACTIONS COLUMN – Primary left, Cancel right ── */}
+                      {/* Actions Column */}
                       <td style={{ padding: '6px 10px', verticalAlign: 'middle' }}>
                         <div style={{
                           display: 'flex',
@@ -272,7 +290,7 @@ export default function StaffOrders() {
                           gap: '6px',
                           minWidth: '200px',
                         }}>
-                          {/* Left: Primary action (Confirm, Start Preparing, Ready, Complete) */}
+                          {/* Left: Primary action */}
                           <div style={{ flex: '0 0 130px', textAlign: 'left' }}>
                             {Object.entries(nextStatuses(order))
                               .filter(([status]) => status !== 'cancelled')

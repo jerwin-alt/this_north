@@ -36,6 +36,14 @@ const statusBg = {
   cancelled: 'rgba(199,91,91,0.1)',
 };
 
+// Helper to format date to YYYY-MM-DD
+const formatDate = (dateStr) => {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr; // fallback
+  return d.toLocaleDateString('en-CA'); // produces YYYY-MM-DD in local time
+};
+
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +55,6 @@ export default function Orders() {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
 
-  // ── NEW: Rejection Modal state ──
   const [rejectModal, setRejectModal] = useState({ show: false, orderId: null });
   const [rejectReason, setRejectReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
@@ -101,9 +108,6 @@ export default function Orders() {
     }
   };
 
-  // ── OLD handleReject function removed – replaced by modal ──
-  // We keep the modal logic below.
-
   const openScheduleModal = (order) => {
     setScheduleModal({ show: true, order });
     setScheduleForm({
@@ -112,13 +116,11 @@ export default function Orders() {
     });
   };
 
-  // ─── FIXED: Append seconds to time if missing ───
   const handleScheduleSave = async () => {
     if (!scheduleModal.order) return;
     setSavingSchedule(true);
     try {
       let formattedTime = scheduleForm.pickup_time;
-      // If time is in HH:mm format (no seconds), add ":00"
       if (formattedTime && formattedTime.split(':').length === 2) {
         formattedTime = `${formattedTime}:00`;
       }
@@ -374,7 +376,9 @@ export default function Orders() {
                       <td style={{ padding: '13px 20px', whiteSpace: 'nowrap' }}>
                         {order.pickup_date ? (
                           <div>
-                            <span style={{ color: SAGE, fontWeight: 600 }}>{order.pickup_date}</span>
+                            <span style={{ color: SAGE, fontWeight: 600 }}>
+                              {formatDate(order.pickup_date)}
+                            </span>
                             {order.pickup_time && (
                               <span style={{ color: MUTED_GRAY, marginLeft: 4 }}>
                                 {order.pickup_time.slice(0, 5)}
@@ -502,7 +506,6 @@ export default function Orders() {
                                       <CheckCircle size={14} />
                                     )}
                                   </button>
-                                  {/* ── Reject button opens modal ── */}
                                   <button
                                     onClick={() => setRejectModal({ show: true, orderId: order.id })}
                                     disabled={actionLoading === order.id}
@@ -707,7 +710,7 @@ export default function Orders() {
         </div>
       )}
 
-      {/* ── NEW: Rejection Modal ── */}
+      {/* Rejection Modal */}
       {rejectModal.show && (
         <div
           style={{

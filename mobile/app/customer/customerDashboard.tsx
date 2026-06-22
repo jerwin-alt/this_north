@@ -32,6 +32,14 @@ const MUTED_GRAY = "#A6A29A";
 
 const { width } = Dimensions.get("window");
 
+// ── Helper to format date to YYYY-MM-DD ──────────
+const formatDate = (dateStr: string | undefined): string => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-CA");
+};
+
 // ── Status config ────────────────────────────────
 const STATUS_COLOR: Record<string, string> = {
   pending: "#D4A03D",
@@ -99,7 +107,7 @@ interface Order {
   payment_status: string;
   pickup_date: string;
   created_at: string;
-  notes?: string; // Added for rejection reason
+  notes?: string;
   items?: Array<{
     menu: { name: string; image_url?: string; base_price: number };
     quantity: number;
@@ -308,7 +316,7 @@ export default function CustomerDashboard() {
     Alert.alert("Added to cart", `${selectedProduct.name} has been added.`);
   };
 
-  // ── Submit payment after order creation (unchanged) ──
+  // ── Submit payment ──
   const submitPayment = async () => {
     if (!pendingOrder) return;
 
@@ -340,7 +348,6 @@ export default function CustomerDashboard() {
       setShowPaymentModal(false);
       setPendingOrder(null);
       setReferenceNumber("");
-      // Refresh orders
       fetchOrders();
     } catch (err: any) {
       Alert.alert("Payment Failed", err.response?.data?.message || "Could not process payment. Please try again.");
@@ -349,7 +356,7 @@ export default function CustomerDashboard() {
     }
   };
 
-  // ── Place Order (Modified) ──────────────────────
+  // ── Place Order ──
   const placeOrder = async () => {
     if (cart.length === 0) {
       Alert.alert("Cart empty", "Please add items to your order");
@@ -376,14 +383,13 @@ export default function CustomerDashboard() {
     const pickupDateStr = pickupDate.toISOString().split("T")[0];
 
     try {
-      const orderResponse = await axios.post("/customer/orders", {
+      await axios.post("/customer/orders", {
         items: orderItems,
         pickup_date: pickupDateStr,
         pickup_time: formattedTime,
         notes: orderNotes,
       });
 
-      // ✅ Success: order placed, no payment modal. Switch to orders tab.
       Alert.alert(
         "Order Submitted!",
         "Your order has been placed and is pending admin approval. You will be able to pay once it is confirmed.",
@@ -395,13 +401,12 @@ export default function CustomerDashboard() {
               setOrderNotes("");
               setShowCart(false);
               setActiveTab("orders");
-              fetchOrders(); // refresh orders list
+              fetchOrders();
             },
           },
         ]
       );
     } catch (err: any) {
-      // Check if it's a stock validation error (422 with errors array)
       if (err.response?.status === 422 && err.response?.data?.errors) {
         setStockErrorMessages(err.response.data.errors);
         setStockErrorModalVisible(true);
@@ -413,7 +418,7 @@ export default function CustomerDashboard() {
     }
   };
 
-  // ── Order Now (immediate order from product modal) ──
+  // ── Order Now ──
   const orderNow = async () => {
     if (!selectedProduct) return;
     if (!pickupDate || !pickupTime) {
@@ -439,14 +444,13 @@ export default function CustomerDashboard() {
         .padStart(2, "0")}:00`;
       const pickupDateStr = pickupDate.toISOString().split("T")[0];
 
-      const orderResponse = await axios.post("/customer/orders", {
+      await axios.post("/customer/orders", {
         items: orderItems,
         pickup_date: pickupDateStr,
         pickup_time: formattedTime,
         notes: orderNotes,
       });
 
-      // Success: close modal, show alert, switch to orders tab
       Alert.alert(
         "Order Submitted!",
         "Your order has been placed and is pending admin approval. You will be able to pay once it is confirmed.",
@@ -580,7 +584,6 @@ export default function CustomerDashboard() {
         );
       }
       case "orders": {
-        // Determine if an order is payable (approved but not paid)
         const isPayable = (order: Order) => {
           return (
             order.status !== "pending" &&
@@ -627,7 +630,7 @@ export default function CustomerDashboard() {
                   <View style={s.orderCardTop}>
                     <View>
                       <Text style={s.orderNumber}>{order.order_number}</Text>
-                      <Text style={s.orderDate}>Pickup: {order.pickup_date}</Text>
+                      <Text style={s.orderDate}>Pickup: {formatDate(order.pickup_date)}</Text>
                     </View>
                     <StatusBadge status={order.status} />
                   </View>
@@ -654,7 +657,6 @@ export default function CustomerDashboard() {
                     <Text style={s.orderTotalLabel}>Total</Text>
                   </View>
 
-                  {/* ── Display rejection reason if cancelled ── */}
                   {order.status === 'cancelled' && order.notes && (
                     <View style={{ marginTop: 8, marginHorizontal: 14, padding: 10, backgroundColor: '#FEF2F2', borderRadius: 8, borderWidth: 1, borderColor: '#FEE2E2' }}>
                       <Text style={{ fontSize: 12, fontWeight: '600', color: '#DC2626' }}>Rejected</Text>
@@ -662,7 +664,6 @@ export default function CustomerDashboard() {
                     </View>
                   )}
 
-                  {/* ✅ Pay button – only shown if approved & not fully paid */}
                   {isPayable(order) && (
                     <TouchableOpacity
                       style={s.payButton}
@@ -868,7 +869,7 @@ export default function CustomerDashboard() {
         </TouchableOpacity>
       )}
 
-      {/* ══ Product Detail Modal ══ */}
+      {/* Product Detail Modal */}
       <Modal visible={productModalVisible} animationType="slide" transparent>
         <View style={s.modalOverlay}>
           <View style={s.productModal}>
@@ -1035,7 +1036,7 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
-      {/* ══ Cart Modal ══ */}
+      {/* Cart Modal */}
       <Modal visible={showCart} animationType="slide" transparent>
         <View style={s.cartOverlay}>
           <View style={s.cartSheet}>
@@ -1159,7 +1160,7 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
-      {/* ══ Payment Modal (used for approved orders) ══ */}
+      {/* Payment Modal */}
       <Modal visible={showPaymentModal} animationType="slide" transparent>
         <View style={s.modalOverlay}>
           <View style={s.paymentSheet}>
@@ -1248,7 +1249,7 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
-      {/* ── Stock Error Modal ── */}
+      {/* Stock Error Modal */}
       <Modal
         visible={stockErrorModalVisible}
         animationType="fade"

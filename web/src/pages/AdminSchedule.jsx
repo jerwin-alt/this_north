@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import axios from '/api/axios';
 import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock,
-  CheckCircle, XCircle, AlertCircle, Loader, Info
+  CheckCircle, XCircle, AlertCircle, Loader, Info, X
 } from 'lucide-react';
 
 const SAGE = '#4F5F52';
@@ -20,7 +20,6 @@ const statusColors = {
   cancelled: '#C75B5B',
 };
 
-// Helper to format a date as YYYY-MM-DD in LOCAL time (Philippines)
 const toLocalDateString = (date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -30,13 +29,15 @@ const toLocalDateString = (date) => {
 
 export default function AdminSchedule() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(null);
   const [orders, setOrders] = useState([]);
-  const [dateOrders, setDateOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [notification, setNotification] = useState(null);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalOrders, setModalOrders] = useState([]);
+  const [modalDate, setModalDate] = useState('');
 
   const fetchAllOrders = async () => {
     setLoading(true);
@@ -59,27 +60,19 @@ export default function AdminSchedule() {
     fetchAllOrders();
   }, []);
 
-  const fetchDateOrders = async (dateStr) => {
-    try {
-      const res = await axios.get('/admin/schedule', { params: { date: dateStr } });
-      setDateOrders(res.data.orders || []);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleDateClick = (day) => {
+  const handleDateClick = async (day) => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
     const clickedDate = new Date(year, month, day);
     const dateStr = toLocalDateString(clickedDate);
 
-    if (selectedDate === dateStr) {
-      setSelectedDate(null);
-      setDateOrders([]);
-    } else {
-      setSelectedDate(dateStr);
-      fetchDateOrders(dateStr);
+    try {
+      const res = await axios.get('/admin/schedule', { params: { date: dateStr } });
+      setModalDate(dateStr);
+      setModalOrders(res.data.orders || []);
+      setModalOpen(true);
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -89,7 +82,10 @@ export default function AdminSchedule() {
       await axios.put(`/admin/orders/${orderId}/approve`);
       setNotification({ type: 'success', message: 'Order approved and schedule confirmed.' });
       await fetchAllOrders();
-      if (selectedDate) fetchDateOrders(selectedDate);
+      if (modalOpen) {
+        const res = await axios.get('/admin/schedule', { params: { date: modalDate } });
+        setModalOrders(res.data.orders || []);
+      }
     } catch (err) {
       setNotification({ type: 'error', message: err.response?.data?.message || 'Approval failed' });
     } finally {
@@ -104,7 +100,10 @@ export default function AdminSchedule() {
       await axios.put(`/admin/orders/${orderId}/reject`);
       setNotification({ type: 'info', message: 'Order rejected.' });
       await fetchAllOrders();
-      if (selectedDate) fetchDateOrders(selectedDate);
+      if (modalOpen) {
+        const res = await axios.get('/admin/schedule', { params: { date: modalDate } });
+        setModalOrders(res.data.orders || []);
+      }
     } catch (err) {
       setNotification({ type: 'error', message: err.response?.data?.message || 'Rejection failed' });
     } finally {
@@ -127,7 +126,6 @@ export default function AdminSchedule() {
     return cells;
   };
 
-  // Group orders by pickup date (only confirmed, preparing, ready)
   const ordersByDate = {};
   orders.forEach(o => {
     if (o.pickup_date) {
@@ -140,10 +138,7 @@ export default function AdminSchedule() {
   });
 
   const calendarCells = buildCalendar();
-  const monthName = currentMonth.toLocaleString('default', {
-    month: 'long',
-    year: 'numeric',
-  });
+  const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
 
   const goToPrevMonth = () =>
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
@@ -159,31 +154,31 @@ export default function AdminSchedule() {
   }
 
   return (
-    <div style={{ background: CREAM, minHeight: '100vh', padding: '36px 28px' }}>
+    <div style={{ background: CREAM, minHeight: '100vh', padding: '20px 24px' }}>
       <style>{`
         .calendar-wrapper {
           background: #fff;
-          border-radius: 20px;
+          border-radius: 16px;
           box-shadow: 0 2px 12px rgba(79,95,82,0.06);
           border: 1.5px solid rgba(242,237,228,0.9);
-          padding: 24px;
+          padding: 16px 18px;
         }
         .calendar-month-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 20px;
+          margin-bottom: 14px;
         }
         .month-title {
-          font-size: 1.2rem;
+          font-size: 1rem;
           font-weight: 700;
           color: ${SAGE};
           letter-spacing: -0.02em;
         }
         .nav-btn {
-          width: 36px;
-          height: 36px;
-          border-radius: 10px;
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -199,17 +194,17 @@ export default function AdminSchedule() {
         .calendar-grid {
           display: grid;
           grid-template-columns: repeat(7, 1fr);
-          gap: 6px;
+          gap: 4px;
         }
         .calendar-weekdays {
           display: grid;
           grid-template-columns: repeat(7, 1fr);
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
         .weekday-label {
           text-align: center;
-          font-size: 0.7rem;
-          font-weight: 600;
+          font-size: 0.6rem;
+          font-weight: 700;
           color: ${MUTED_GRAY};
           letter-spacing: 0.06em;
           text-transform: uppercase;
@@ -219,7 +214,7 @@ export default function AdminSchedule() {
           aspect-ratio: 1;
           background: #fff;
           border: 1.5px solid rgba(166,162,154,0.15);
-          border-radius: 12px;
+          border-radius: 10px;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -227,9 +222,10 @@ export default function AdminSchedule() {
           cursor: pointer;
           transition: all 0.2s ease;
           position: relative;
-          font-size: 0.95rem;
+          font-size: 0.85rem;
           font-weight: 500;
           color: ${SAGE};
+          min-height: 44px;
         }
         .day-cell:hover {
           background: rgba(79,95,82,0.06);
@@ -241,16 +237,6 @@ export default function AdminSchedule() {
           background: ${CREAM};
           border-color: ${SAGE};
           box-shadow: 0 0 0 2px ${SAGE}40;
-        }
-        .day-cell.selected {
-          background: ${SAGE};
-          color: #fff;
-          font-weight: 700;
-          border-color: #3e4c42;
-          box-shadow: 0 6px 16px rgba(79,95,82,0.2);
-        }
-        .day-cell.selected .day-number {
-          color: #fff;
         }
         .day-cell.empty {
           background: transparent;
@@ -265,42 +251,158 @@ export default function AdminSchedule() {
         .day-number {
           position: relative;
           z-index: 1;
+          font-size: 0.85rem;
         }
         .order-count-badge {
           position: absolute;
-          bottom: 4px;
-          right: 4px;
+          bottom: 2px;
+          right: 2px;
           background: ${SAGE};
           color: #fff;
-          font-size: 0.6rem;
+          font-size: 0.65rem;
           font-weight: 700;
-          padding: 2px 7px;
+          padding: 2px 8px;
           border-radius: 999px;
-          min-width: 22px;
+          min-width: 32px;
           text-align: center;
-          box-shadow: 0 2px 6px rgba(79,95,82,0.25);
+          box-shadow: 0 2px 6px rgba(79,95,82,0.3);
           line-height: 1.4;
           white-space: nowrap;
+          letter-spacing: 0.02em;
         }
-        .day-cell.selected .order-count-badge {
+        .modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          padding: 16px;
+          backdrop-filter: blur(4px);
+        }
+        .modal-content {
           background: #fff;
-          color: ${SAGE};
+          border-radius: 24px;
+          width: 100%;
+          max-width: 640px;
+          max-height: 80vh;
+          overflow-y: auto;
+          box-shadow: 0 24px 60px rgba(79,95,82,0.18);
+          border: none;
+        }
+        .modal-header {
+          padding: 18px 24px;
+          border-top-left-radius: 24px;
+          border-top-right-radius: 24px;
+          background: linear-gradient(135deg, ${SAGE}, #3e4c42);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .modal-header-left {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .modal-header-icon {
+          background: rgba(255,255,255,0.15);
+          border-radius: 10px;
+          padding: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .modal-header-title {
+          color: #fff;
+          font-weight: 700;
+          font-size: 1.1rem;
+          letter-spacing: -0.02em;
+        }
+        .modal-header-date {
+          color: rgba(255,255,255,0.8);
+          font-size: 0.85rem;
+          font-weight: 500;
+        }
+        .modal-close-btn {
+          color: rgba(255,255,255,0.8);
+          padding: 6px;
+          border-radius: 8px;
+          transition: all 0.15s;
+          cursor: pointer;
+          background: transparent;
+          border: none;
+        }
+        .modal-close-btn:hover {
+          background: rgba(255,255,255,0.15);
+          color: #fff;
+        }
+        .modal-body {
+          padding: 20px 24px;
         }
         .order-card {
-          background: #fff;
-          border-radius: 16px;
-          border: 1.5px solid rgba(242,237,228,0.9);
+          background: #f8f7f4;
+          border-radius: 14px;
           padding: 16px;
           margin-bottom: 12px;
-          box-shadow: 0 2px 12px rgba(79,95,82,0.06);
+          border: 1px solid rgba(242,237,228,0.8);
           transition: all 0.2s;
         }
         .order-card:hover {
-          box-shadow: 0 4px 16px rgba(79,95,82,0.1);
+          background: #fff;
+          box-shadow: 0 4px 12px rgba(79,95,82,0.08);
+        }
+        .order-card-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+        }
+        .order-number {
+          font-weight: 700;
+          color: ${SAGE};
+          font-size: 0.95rem;
+        }
+        .order-customer {
+          color: ${MUTED_GRAY};
+          font-size: 0.85rem;
+          margin-top: 2px;
+        }
+        .order-time {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          color: ${MUTED_GRAY};
+          font-size: 0.8rem;
+          margin-top: 4px;
+        }
+        .order-items {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+          margin-top: 8px;
+        }
+        .order-item-tag {
+          background: rgba(79,95,82,0.08);
+          padding: 2px 8px;
+          border-radius: 6px;
+          font-size: 0.75rem;
+          color: ${SAGE};
+        }
+        .order-status-badge {
+          padding: 3px 10px;
+          border-radius: 999px;
+          font-size: 0.7rem;
+          font-weight: 600;
+          text-transform: capitalize;
+        }
+        .order-actions {
+          margin-top: 12px;
+          display: flex;
+          gap: 8px;
         }
         .btn {
-          padding: 8px 16px;
-          border-radius: 10px;
+          padding: 6px 14px;
+          border-radius: 8px;
           font-size: 0.8rem;
           font-weight: 600;
           border: none;
@@ -326,20 +428,49 @@ export default function AdminSchedule() {
           background: #DC2626;
           box-shadow: 0 4px 12px rgba(239,68,68,0.3);
         }
+        .no-orders {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 32px 0;
+          text-align: center;
+        }
+        .no-orders-icon {
+          width: 60px;
+          height: 60px;
+          border-radius: 50%;
+          background: ${CREAM};
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 12px;
+          border: 1.5px dashed rgba(166,162,154,0.3);
+        }
+        .no-orders-title {
+          font-size: 1.1rem;
+          font-weight: 700;
+          color: ${SAGE};
+        }
+        .no-orders-sub {
+          font-size: 0.85rem;
+          color: ${MUTED_GRAY};
+          margin-top: 4px;
+        }
         .notification {
-          padding: 14px 20px;
+          padding: 12px 16px;
           border-radius: 12px;
           font-size: 0.85rem;
           font-weight: 500;
-          margin-bottom: 24px;
+          margin-bottom: 16px;
           display: flex;
           align-items: center;
           gap: 10px;
         }
       `}</style>
 
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-3">
             <div
               style={{
@@ -355,7 +486,7 @@ export default function AdminSchedule() {
             >
               <CalendarIcon size={18} color="#fff" />
             </div>
-            <h1 style={{ color: SAGE, fontSize: '1.6rem', fontWeight: 700 }}>
+            <h1 style={{ color: SAGE, fontSize: '1.4rem', fontWeight: 700 }}>
               Schedule Management
             </h1>
           </div>
@@ -393,117 +524,116 @@ export default function AdminSchedule() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
-            <div className="calendar-wrapper">
-              <div className="calendar-month-header">
-                <button className="nav-btn" onClick={goToPrevMonth}>
-                  <ChevronLeft size={20} />
-                </button>
-                <h2 className="month-title">{monthName}</h2>
-                <button className="nav-btn" onClick={goToNextMonth}>
-                  <ChevronRight size={20} />
-                </button>
-              </div>
-
-              <div className="calendar-weekdays">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                  <div key={d} className="weekday-label">{d}</div>
-                ))}
-              </div>
-
-              <div className="calendar-grid">
-                {calendarCells.map((day, idx) => {
-                  if (day === null)
-                    return <div key={`empty-${idx}`} className="day-cell empty" />;
-
-                  const year = currentMonth.getFullYear();
-                  const month = currentMonth.getMonth();
-                  const dateStr = toLocalDateString(new Date(year, month, day));
-                  const isToday = dateStr === toLocalDateString(new Date());
-                  const isSelected = selectedDate === dateStr;
-
-                  const ordersOnDate = ordersByDate[dateStr] || [];
-                  const orderCount = ordersOnDate.length;
-
-                  return (
-                    <div
-                      key={day}
-                      className={`day-cell ${isToday ? 'today' : ''} ${
-                        isSelected ? 'selected' : ''
-                      }`}
-                      onClick={() => handleDateClick(day)}
-                    >
-                      <span className="day-number">{day}</span>
-                      {orderCount > 0 && (
-                        <span className="order-count-badge">
-                          {orderCount} {orderCount === 1 ? 'order' : 'orders'}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+        <div className="calendar-wrapper">
+          <div className="calendar-month-header">
+            <button className="nav-btn" onClick={goToPrevMonth}>
+              <ChevronLeft size={18} />
+            </button>
+            <h2 className="month-title">{monthName}</h2>
+            <button className="nav-btn" onClick={goToNextMonth}>
+              <ChevronRight size={18} />
+            </button>
           </div>
 
-          <div className="lg:col-span-1">
-            <div
-              className="bg-white rounded-2xl shadow-sm border p-6"
-              style={{ borderColor: 'rgba(242,237,228,0.9)' }}
-            >
-              <h3 className="font-bold mb-4" style={{ color: SAGE }}>
-                {selectedDate ? `Orders for ${selectedDate}` : '📅 Select a date'}
-              </h3>
+          <div className="calendar-weekdays">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+              <div key={d} className="weekday-label">{d}</div>
+            ))}
+          </div>
 
-              {dateOrders.length === 0 ? (
-                <p style={{ color: MUTED_GRAY }}>No confirmed orders on this date.</p>
+          <div className="calendar-grid">
+            {calendarCells.map((day, idx) => {
+              if (day === null)
+                return <div key={`empty-${idx}`} className="day-cell empty" />;
+
+              const year = currentMonth.getFullYear();
+              const month = currentMonth.getMonth();
+              const dateStr = toLocalDateString(new Date(year, month, day));
+              const isToday = dateStr === toLocalDateString(new Date());
+
+              const ordersOnDate = ordersByDate[dateStr] || [];
+              const orderCount = ordersOnDate.length;
+
+              return (
+                <div
+                  key={day}
+                  className={`day-cell ${isToday ? 'today' : ''}`}
+                  onClick={() => handleDateClick(day)}
+                >
+                  <span className="day-number">{day}</span>
+                  {orderCount > 0 && (
+                    <span className="order-count-badge">
+                      {orderCount} {orderCount === 1 ? 'order' : 'orders'}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {modalOpen && (
+        <div className="modal-backdrop" onClick={() => setModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-left">
+                <div className="modal-header-icon">
+                  <CalendarIcon size={16} color="#fff" />
+                </div>
+                <div>
+                  <div className="modal-header-title">Orders for</div>
+                  <div className="modal-header-date">{modalDate}</div>
+                </div>
+              </div>
+              <button className="modal-close-btn" onClick={() => setModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {modalOrders.length === 0 ? (
+                <div className="no-orders">
+                  <div className="no-orders-icon">
+                    <CalendarIcon size={28} color={MUTED_GRAY} style={{ opacity: 0.5 }} />
+                  </div>
+                  <div className="no-orders-title">No scheduled orders</div>
+                  <div className="no-orders-sub">There are no orders for this date.</div>
+                </div>
               ) : (
-                dateOrders.map(order => (
+                modalOrders.map(order => (
                   <div key={order.id} className="order-card">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="font-bold" style={{ color: SAGE }}>
-                        {order.order_number}
-                      </span>
+                    <div className="order-card-top">
+                      <div>
+                        <div className="order-number">{order.order_number}</div>
+                        <div className="order-customer">{order.customer_name}</div>
+                        {order.pickup_time && (
+                          <div className="order-time">
+                            <Clock size={14} />
+                            {order.pickup_time.slice(0, 5)}
+                          </div>
+                        )}
+                      </div>
                       <span
+                        className="order-status-badge"
                         style={{
-                          background: statusColors[order.status] + '20',
-                          color: statusColors[order.status],
-                          padding: '2px 8px',
-                          borderRadius: 999,
-                          fontSize: '0.7rem',
-                          fontWeight: 600,
+                          backgroundColor: (statusColors[order.status] || '#A6A29A') + '20',
+                          color: statusColors[order.status] || MUTED_GRAY,
+                          border: `1px solid ${(statusColors[order.status] || '#A6A29A') + '40'}`,
                         }}
                       >
                         {order.status}
                       </span>
                     </div>
-                    <p style={{ marginBottom: 4 }}>{order.customer_name}</p>
-                    {order.pickup_time && (
-                      <p style={{ fontSize: '0.85rem', color: MUTED_GRAY }}>
-                        <Clock size={12} style={{ display: 'inline', marginRight: 4 }} />
-                        {order.pickup_time.slice(0, 5)}
-                      </p>
-                    )}
-                    <div className="mt-2">
+                    <div className="order-items">
                       {order.items?.map(item => (
-                        <span
-                          key={item.id}
-                          style={{
-                            background: 'rgba(79,95,82,0.06)',
-                            padding: '2px 6px',
-                            borderRadius: 5,
-                            fontSize: '0.75rem',
-                            marginRight: 4,
-                            color: SAGE,
-                          }}
-                        >
-                          {item.menu?.name} ×{item.quantity}
+                        <span key={item.id} className="order-item-tag">
+                          {item.menu?.name} × {item.quantity}
                         </span>
                       ))}
                     </div>
                     {order.status === 'pending' && (
-                      <div className="flex gap-2 mt-3">
+                      <div className="order-actions">
                         <button
                           className="btn btn-approve"
                           onClick={() => handleApprove(order.id)}
@@ -528,7 +658,7 @@ export default function AdminSchedule() {
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
