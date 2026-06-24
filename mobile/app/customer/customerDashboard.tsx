@@ -118,7 +118,7 @@ interface Order {
 const getImageUrl = (url: string | undefined): string | undefined => {
   if (!url) return undefined;
   if (url.startsWith("http")) return url;
-  return `http://10.67.144.170:8000${url}`;
+  return `http://10.213.162.170:8000${url}`;
 };
 
 // ── Small reusable status badge ──────────────────
@@ -321,7 +321,10 @@ export default function CustomerDashboard() {
     if (!pendingOrder) return;
 
     let amountToPay = 0;
-    if (paymentOption === "down") {
+    if (pendingOrder.payment_status === 'partially_paid') {
+      // Remaining balance is 70% of total (since down payment is always 30%)
+      amountToPay = pendingOrder.total_amount * 0.7;
+    } else if (paymentOption === "down") {
       amountToPay = pendingOrder.total_amount * 0.3;
     } else {
       amountToPay = pendingOrder.total_amount;
@@ -343,7 +346,7 @@ export default function CustomerDashboard() {
 
       Alert.alert(
         "Payment Successful 🎉",
-        `Your ${paymentOption === "down" ? "30% down payment" : "full payment"} has been received. Your order is now pending approval.`
+        `Your ${pendingOrder.payment_status === 'partially_paid' ? 'remaining balance' : (paymentOption === "down" ? "30% down payment" : "full payment")} has been received.`
       );
       setShowPaymentModal(false);
       setPendingOrder(null);
@@ -671,6 +674,7 @@ export default function CustomerDashboard() {
                         setPendingOrder(order);
                         setShowPaymentModal(true);
                       }}
+                      activeOpacity={0.8}
                     >
                       <Text style={s.payButtonText}>Pay Now</Text>
                     </TouchableOpacity>
@@ -1160,7 +1164,7 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
-      {/* Payment Modal */}
+      {/* Payment Modal – Updated Layout with ScrollView and fixed footer */}
       <Modal visible={showPaymentModal} animationType="slide" transparent>
         <View style={s.modalOverlay}>
           <View style={s.paymentSheet}>
@@ -1173,76 +1177,123 @@ export default function CustomerDashboard() {
               </TouchableOpacity>
             </View>
 
-            <View style={s.paymentBody}>
-              <Text style={s.paymentAmountLabel}>Order Total</Text>
-              <Text style={s.paymentAmount}>
-                ₱{pendingOrder?.total_amount?.toLocaleString()}
-              </Text>
+            {/* Scrollable content area */}
+            <ScrollView style={s.paymentContent} showsVerticalScrollIndicator={false}>
+              <View style={s.paymentBody}>
+                <Text style={s.paymentAmountLabel}>Order Total</Text>
+                <Text style={s.paymentAmount}>
+                  ₱{pendingOrder?.total_amount?.toLocaleString()}
+                </Text>
 
-              <Text style={s.paymentOptionLabel}>Choose Payment Option</Text>
-              <View style={s.paymentOptionRow}>
-                <TouchableOpacity
-                  style={[s.paymentOptionChip, paymentOption === "down" && s.paymentOptionChipActive]}
-                  onPress={() => setPaymentOption("down")}
-                >
-                  <Text style={[s.paymentOptionText, paymentOption === "down" && s.paymentOptionTextActive]}>
-                    30% Down Payment
-                  </Text>
-                  <Text style={[s.paymentOptionPrice, paymentOption === "down" && { color: "#fff" }]}>
-                    ₱{pendingOrder ? (pendingOrder.total_amount * 0.3).toLocaleString() : 0}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[s.paymentOptionChip, paymentOption === "full" && s.paymentOptionChipActive]}
-                  onPress={() => setPaymentOption("full")}
-                >
-                  <Text style={[s.paymentOptionText, paymentOption === "full" && s.paymentOptionTextActive]}>
-                    Full Payment
-                  </Text>
-                  <Text style={[s.paymentOptionPrice, paymentOption === "full" && { color: "#fff" }]}>
-                    ₱{pendingOrder?.total_amount?.toLocaleString()}
-                  </Text>
-                </TouchableOpacity>
+                {(() => {
+                  const isPartiallyPaid = pendingOrder?.payment_status === 'partially_paid';
+                  const remainingBalance = isPartiallyPaid ? (pendingOrder?.total_amount || 0) * 0.7 : 0;
+
+                  return (
+                    <>
+                      {isPartiallyPaid && (
+                        <View style={{ marginBottom: 12 }}>
+                          <Text style={s.paymentAmountLabel}>Amount Already Paid</Text>
+                          <Text style={[s.paymentAmount, { fontSize: 18, color: SAGE }]}>
+                            ₱{(pendingOrder?.total_amount || 0) * 0.3}
+                          </Text>
+                          <Text style={[s.paymentAmountLabel, { marginTop: 6 }]}>Remaining Balance</Text>
+                          <Text style={[s.paymentAmount, { fontSize: 20, color: SAGE }]}>
+                            ₱{remainingBalance.toLocaleString()}
+                          </Text>
+                        </View>
+                      )}
+
+                      <Text style={s.paymentOptionLabel}>
+                        {isPartiallyPaid ? 'Pay Remaining Balance' : 'Choose Payment Option'}
+                      </Text>
+
+                      {!isPartiallyPaid ? (
+                        <View style={s.paymentOptionRow}>
+                          <TouchableOpacity
+                            style={[s.paymentOptionChip, paymentOption === "down" && s.paymentOptionChipActive]}
+                            onPress={() => setPaymentOption("down")}
+                          >
+                            <Text style={[s.paymentOptionText, paymentOption === "down" && s.paymentOptionTextActive]}>
+                              30% Down Payment
+                            </Text>
+                            <Text style={[s.paymentOptionPrice, paymentOption === "down" && { color: "#fff" }]}>
+                              ₱{pendingOrder ? (pendingOrder.total_amount * 0.3).toLocaleString() : 0}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[s.paymentOptionChip, paymentOption === "full" && s.paymentOptionChipActive]}
+                            onPress={() => setPaymentOption("full")}
+                          >
+                            <Text style={[s.paymentOptionText, paymentOption === "full" && s.paymentOptionTextActive]}>
+                              Full Payment
+                            </Text>
+                            <Text style={[s.paymentOptionPrice, paymentOption === "full" && { color: "#fff" }]}>
+                              ₱{pendingOrder?.total_amount?.toLocaleString()}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View style={[s.paymentOptionRow, { justifyContent: 'center' }]}>
+                          <View style={[s.paymentOptionChip, s.paymentOptionChipActive, { flex: 1 }]}>
+                            <Text style={[s.paymentOptionText, s.paymentOptionTextActive]}>
+                              Remaining Balance
+                            </Text>
+                            <Text style={[s.paymentOptionPrice, { color: '#fff' }]}>
+                              ₱{remainingBalance.toLocaleString()}
+                            </Text>
+                          </View>
+                        </View>
+                      )}
+                    </>
+                  );
+                })()}
+
+                <Text style={s.paymentMethodLabel}>Payment Method</Text>
+                <View style={s.paymentMethodOptions}>
+                  <TouchableOpacity
+                    style={[s.paymentMethodChip, paymentMethod === "gcash" && s.paymentMethodChipActive]}
+                    onPress={() => setPaymentMethod("gcash")}
+                  >
+                    <Text style={[s.paymentMethodText, paymentMethod === "gcash" && s.paymentMethodTextActive]}>
+                      GCash
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TextInput
+                  placeholder="GCash Reference Number"
+                  value={referenceNumber}
+                  onChangeText={setReferenceNumber}
+                  style={s.paymentReferenceInput}
+                  placeholderTextColor={MUTED_GRAY}
+                />
               </View>
+            </ScrollView>
 
-              <Text style={s.paymentMethodLabel}>Payment Method</Text>
-              <View style={s.paymentMethodOptions}>
-                <TouchableOpacity
-                  style={[s.paymentMethodChip, paymentMethod === "gcash" && s.paymentMethodChipActive]}
-                  onPress={() => setPaymentMethod("gcash")}
-                >
-                  <Text style={[s.paymentMethodText, paymentMethod === "gcash" && s.paymentMethodTextActive]}>
-                    GCash
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <TextInput
-                placeholder="GCash Reference Number"
-                value={referenceNumber}
-                onChangeText={setReferenceNumber}
-                style={s.paymentReferenceInput}
-                placeholderTextColor={MUTED_GRAY}
-              />
-
+            {/* Fixed footer with Pay button */}
+            <View style={s.paymentFooter}>
               <TouchableOpacity
                 onPress={submitPayment}
                 disabled={submittingPayment}
-                style={[s.paymentButton, submittingPayment && { opacity: 0.7 }]}
-                activeOpacity={0.88}
+                style={[s.paymentButton, submittingPayment && { opacity: 0.6 }]}
+                activeOpacity={0.8}
               >
-                <LinearGradient colors={[SAGE, SAGE_DARK]} style={s.paymentButtonGrad}>
-                  {submittingPayment ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Text style={s.paymentButtonText}>
-                      Pay ₱
-                      {paymentOption === "down"
-                        ? (pendingOrder?.total_amount * 0.3).toLocaleString()
-                        : pendingOrder?.total_amount?.toLocaleString()}
-                    </Text>
-                  )}
-                </LinearGradient>
+                {submittingPayment ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={s.paymentButtonText}>
+                    {(() => {
+                      const isPartiallyPaid = pendingOrder?.payment_status === 'partially_paid';
+                      const amount = isPartiallyPaid
+                        ? (pendingOrder?.total_amount || 0) * 0.7
+                        : paymentOption === "down"
+                        ? (pendingOrder?.total_amount || 0) * 0.3
+                        : pendingOrder?.total_amount || 0;
+                      return `Pay ₱${amount.toLocaleString()}`;
+                    })()}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -1550,7 +1601,7 @@ const s = StyleSheet.create({
   orderTotal: { fontSize: 18, fontWeight: "800", color: SAGE, letterSpacing: -0.5 },
   orderTotalLabel: { fontSize: 11, color: MUTED_GRAY, fontWeight: "500" },
 
-  // Pay button
+  // Pay button on order card (old design)
   payButton: {
     marginHorizontal: 14,
     marginBottom: 14,
@@ -1992,13 +2043,15 @@ const s = StyleSheet.create({
   },
   placeOrderText: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
 
-  // Payment modal styles
+  // Payment modal styles (updated)
   paymentSheet: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,
-    maxHeight: "80%",
+    maxHeight: "90%",
+    flex: 1,
+    flexDirection: "column",
   },
   paymentHeader: {
     flexDirection: "row",
@@ -2014,8 +2067,12 @@ const s = StyleSheet.create({
     fontWeight: "800",
     color: SAGE,
   },
+  paymentContent: {
+    flex: 1,
+  },
   paymentBody: {
     padding: 20,
+    paddingBottom: 10,
   },
   paymentAmountLabel: {
     fontSize: 12,
@@ -2107,14 +2164,19 @@ const s = StyleSheet.create({
     color: SAGE,
     marginBottom: 24,
   },
-  paymentButton: {
-    borderRadius: 16,
-    overflow: "hidden",
+  paymentFooter: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: CREAM,
   },
-  paymentButtonGrad: {
-    paddingVertical: 16,
+  paymentButton: {
+    backgroundColor: SAGE,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: "center",
-    borderRadius: 16,
+    justifyContent: "center",
   },
   paymentButtonText: {
     color: "#fff",
