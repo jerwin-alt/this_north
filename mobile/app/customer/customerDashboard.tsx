@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
+// mobile/app/customer/customerDashboard.tsx
+
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -22,8 +24,10 @@ import { router, useFocusEffect } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import axios from "@/api/axios";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { useNotificationStore } from "@/stores/notificationStore";
+import Toast from "react-native-toast-message";
 
-// ── Palette (matches suite) ──────────────────────
+// ── Palette ──────────────────────────────────────
 const SAGE = "#4F5F52";
 const SAGE_DARK = "#3e4c42";
 const CREAM = "#F2EDE4";
@@ -118,7 +122,7 @@ interface Order {
 const getImageUrl = (url: string | undefined): string | undefined => {
   if (!url) return undefined;
   if (url.startsWith("http")) return url;
-  return `http://10.213.162.170:8000${url}`;
+  return `http://10.130.48.170:8000${url}`;
 };
 
 // ── Small reusable status badge ──────────────────
@@ -199,6 +203,20 @@ export default function CustomerDashboard() {
   const [stockErrorModalVisible, setStockErrorModalVisible] = useState(false);
   const [stockErrorMessages, setStockErrorMessages] = useState<string[]>([]);
 
+  // ── Notification store ──
+  const notificationStore = useNotificationStore();
+  const notificationsList = notificationStore.notifications;
+  const unreadCount = notificationStore.unreadCount;
+  const markAsRead = notificationStore.markAsRead;
+  const clearAllNotifications = notificationStore.clearAll;
+
+  // ── Toast detection ──
+  const prevNotifsRef = useRef<typeof notificationsList>([]);
+
+  // ── Order detail modal state ──
+  const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<Order | null>(null);
+  const [showOrderDetailModal, setShowOrderDetailModal] = useState(false);
+
   // ── Fetch functions ──
   const fetchCategories = async () => {
     try {
@@ -252,7 +270,7 @@ export default function CustomerDashboard() {
     }
   };
   const fetchNotifications = async () => {
-    setNotifications([]);
+    // Notifications are now managed by the store; no need to fetch.
   };
 
   const onRefresh = useCallback(async () => {
@@ -272,6 +290,8 @@ export default function CustomerDashboard() {
       if (activeTab === "orders") fetchOrders();
     }, [activeTab])
   );
+
+  // ── Initial data load ──
   useEffect(() => {
     fetchCategories();
     fetchOrders();
@@ -281,6 +301,108 @@ export default function CustomerDashboard() {
   useEffect(() => {
     if (selectedCategory) fetchProducts();
   }, [selectedCategory]);
+
+  // ── Polling fallback for notifications (with deduplication fix) ──
+  useEffect(() => {
+    let isMounted = true;
+
+    const generateNotificationsFromOrders = async () => {
+      try {
+        const res = await axios.get("/customer/orders");
+        const latestOrders: Order[] = res.data.orders || [];
+        const store = useNotificationStore.getState();
+        const existingNotifs = store.notifications;
+
+        latestOrders.forEach((order) => {
+          // Skip pending orders (not actionable yet)
+          if (order.status === "pending") return;
+
+          let message = "";
+          let type = order.status;
+
+          // ─── Build the message based on status ───
+          switch (order.status) {
+            case "confirmed":
+              message = `Your order #${order.order_number} has been confirmed.`;
+              break;
+            case "preparing":
+              message = `Your order #${order.order_number} is now being prepared.`;
+              break;
+            case "ready":
+              message = `Your order #${order.order_number} is ready for pickup.`;
+              break;
+            case "completed":
+              message = `Your order #${order.order_number} has been completed.`;
+              break;
+            case "cancelled":
+              if (order.notes && order.notes.includes("[REJECTED]:")) {
+                const reason = order.notes.replace(/\[REJECTED\]:\s*/, "");
+                message = `Your order #${order.order_number} has been rejected. Reason: ${reason}`;
+                type = "rejected";
+              } else {
+                message = `Your order #${order.order_number} has been cancelled.`;
+              }
+              break;
+            default:
+              return; // ignore unknown statuses
+          }
+
+          // ─── Deduplicate by message (prevents looping) ───
+          const alreadyNotified = existingNotifs.some(
+            (n) => n.order_id === order.id && n.message === message
+          );
+          if (alreadyNotified) return;
+
+          // Add notification to the store
+          store.addNotification({
+            order_id: order.id,
+            order_number: order.order_number,
+            status: order.status,
+            payment_status: order.payment_status,
+            message: message,
+            type: type,
+            updated_at: new Date().toISOString(),
+          });
+        });
+      } catch (e) {
+        console.error("Polling error:", e);
+      }
+    };
+
+    // Run immediately on mount
+    generateNotificationsFromOrders();
+
+    // Poll every 5 seconds
+    const interval = setInterval(() => {
+      if (isMounted) generateNotificationsFromOrders();
+    }, 5000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // ── Toast pop‑up on new notification ──
+  useEffect(() => {
+    const current = notificationsList;
+    const prev = prevNotifsRef.current;
+
+    if (current.length > prev.length) {
+      const newNotif = current.find((n) => !prev.some((p) => p.id === n.id));
+      if (newNotif) {
+        Toast.show({
+          type: "info",
+          text1: "📦 Order Update",
+          text2: newNotif.message,
+          visibilityTime: 4000,
+          autoHide: true,
+          topOffset: 50,
+        });
+      }
+    }
+    prevNotifsRef.current = current;
+  }, [notificationsList]);
 
   // ── Cart helpers ──
   const removeFromCart = (index: number) => setCart((prev) => prev.filter((_, i) => i !== index));
@@ -321,8 +443,7 @@ export default function CustomerDashboard() {
     if (!pendingOrder) return;
 
     let amountToPay = 0;
-    if (pendingOrder.payment_status === 'partially_paid') {
-      // Remaining balance is 70% of total (since down payment is always 30%)
+    if (pendingOrder.payment_status === "partially_paid") {
       amountToPay = pendingOrder.total_amount * 0.7;
     } else if (paymentOption === "down") {
       amountToPay = pendingOrder.total_amount * 0.3;
@@ -346,14 +467,17 @@ export default function CustomerDashboard() {
 
       Alert.alert(
         "Payment Successful 🎉",
-        `Your ${pendingOrder.payment_status === 'partially_paid' ? 'remaining balance' : (paymentOption === "down" ? "30% down payment" : "full payment")} has been received.`
+        `Your ${pendingOrder.payment_status === "partially_paid" ? "remaining balance" : paymentOption === "down" ? "30% down payment" : "full payment"} has been received.`
       );
       setShowPaymentModal(false);
       setPendingOrder(null);
       setReferenceNumber("");
       fetchOrders();
     } catch (err: any) {
-      Alert.alert("Payment Failed", err.response?.data?.message || "Could not process payment. Please try again.");
+      Alert.alert(
+        "Payment Failed",
+        err.response?.data?.message || "Could not process payment. Please try again."
+      );
     } finally {
       setSubmittingPayment(false);
     }
@@ -482,7 +606,23 @@ export default function CustomerDashboard() {
 
   const initials = `${user?.first_name?.[0] || ""}${user?.last_name?.[0] || ""}`.toUpperCase();
 
-  // ── Tab content ──────────────────────────────────────────────
+  // ── Open order detail modal from notification ──
+  const handleNotificationPress = (notification: any) => {
+    // Mark as read
+    markAsRead(notification.id);
+
+    // Find the order in the orders list
+    const order = orders.find((o) => o.id === notification.order_id);
+    if (order) {
+      setSelectedOrderForDetails(order);
+      setShowOrderDetailModal(true);
+    } else {
+      // If not in the list, try fetching it directly (optional)
+      Alert.alert("Order not found", "Could not find the order details.");
+    }
+  };
+
+  // ── Tab content for non‑notification tabs ──────
   const renderContent = () => {
     switch (activeTab) {
       case "menu": {
@@ -628,7 +768,10 @@ export default function CustomerDashboard() {
               orders.map((order) => (
                 <View key={order.id} style={s.orderCard}>
                   <View
-                    style={[s.orderCardAccent, { backgroundColor: STATUS_COLOR[order.status] || MUTED_GRAY }]}
+                    style={[
+                      s.orderCardAccent,
+                      { backgroundColor: STATUS_COLOR[order.status] || MUTED_GRAY },
+                    ]}
                   />
                   <View style={s.orderCardTop}>
                     <View>
@@ -660,10 +803,22 @@ export default function CustomerDashboard() {
                     <Text style={s.orderTotalLabel}>Total</Text>
                   </View>
 
-                  {order.status === 'cancelled' && order.notes && (
-                    <View style={{ marginTop: 8, marginHorizontal: 14, padding: 10, backgroundColor: '#FEF2F2', borderRadius: 8, borderWidth: 1, borderColor: '#FEE2E2' }}>
-                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#DC2626' }}>Rejected</Text>
-                      <Text style={{ fontSize: 13, color: SAGE, marginTop: 2 }}>{order.notes.replace('[REJECTED]: ', '')}</Text>
+                  {order.status === "cancelled" && order.notes && (
+                    <View
+                      style={{
+                        marginTop: 8,
+                        marginHorizontal: 14,
+                        padding: 10,
+                        backgroundColor: "#FEF2F2",
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: "#FEE2E2",
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: "600", color: "#DC2626" }}>Rejected</Text>
+                      <Text style={{ fontSize: 13, color: SAGE, marginTop: 2 }}>
+                        {order.notes.replace("[REJECTED]: ", "")}
+                      </Text>
                     </View>
                   )}
 
@@ -685,29 +840,6 @@ export default function CustomerDashboard() {
           </View>
         );
       }
-      case "notifications":
-        return (
-          <View style={s.tabContent}>
-            <View style={s.tabHeader}>
-              <View style={s.tabHeaderIcon}>
-                <Ionicons name="notifications-outline" size={15} color="#fff" />
-              </View>
-              <Text style={s.tabTitle}>Notifications</Text>
-            </View>
-            <View style={s.emptyWrap}>
-              <View style={s.emptyIconBox}>
-                <Ionicons
-                  name="notifications-off-outline"
-                  size={30}
-                  color={MUTED_GRAY}
-                  style={{ opacity: 0.5 }}
-                />
-              </View>
-              <Text style={s.emptyText}>No notifications yet</Text>
-              <Text style={s.emptySubText}>Order updates and alerts will appear here</Text>
-            </View>
-          </View>
-        );
       case "profile":
         return (
           <View style={s.tabContent}>
@@ -748,13 +880,17 @@ export default function CustomerDashboard() {
                 <View style={s.verifCardLeft}>
                   <MaterialCommunityIcons
                     name={
-                      user.verification_type === "senior_citizen" ? "account-star" : "wheelchair-accessibility"
+                      user.verification_type === "senior_citizen"
+                        ? "account-star"
+                        : "wheelchair-accessibility"
                     }
                     size={20}
                     color={SAGE}
                   />
                   <View style={{ marginLeft: 10 }}>
-                    <Text style={s.verifType}>{user.verification_type.replace("_", " ")}</Text>
+                    <Text style={s.verifType}>
+                      {user.verification_type.replace("_", " ")}
+                    </Text>
                     <Text style={s.verifLabel}>Verification type</Text>
                   </View>
                 </View>
@@ -769,7 +905,11 @@ export default function CustomerDashboard() {
                   const earned = i < (user?.signature_stamps || 0) % 10;
                   return (
                     <View key={i} style={[s.stamp, earned && s.stampEarned]}>
-                      <MaterialCommunityIcons name="star" size={14} color={earned ? "#fff" : MUTED_GRAY} />
+                      <MaterialCommunityIcons
+                        name="star"
+                        size={14}
+                        color={earned ? "#fff" : MUTED_GRAY}
+                      />
                     </View>
                   );
                 })}
@@ -818,22 +958,89 @@ export default function CustomerDashboard() {
         </View>
       </LinearGradient>
 
-      <ScrollView
-        style={{ flex: 1 }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={SAGE}
-            colors={[SAGE]}
-          />
-        }
-        contentContainerStyle={{ paddingBottom: 24 }}
-      >
-        {renderContent()}
-      </ScrollView>
+      {activeTab === "notifications" ? (
+        <FlatList
+          data={notificationsList}
+          keyExtractor={(item) => item.id}
+          style={s.tabContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={SAGE}
+              colors={[SAGE]}
+            />
+          }
+          ListHeaderComponent={
+            <View style={s.tabHeader}>
+              <View style={s.tabHeaderIcon}>
+                <Ionicons name="notifications-outline" size={15} color="#fff" />
+              </View>
+              <Text style={s.tabTitle}>Notifications</Text>
+              {unreadCount > 0 && (
+                <View style={s.countPill}>
+                  <Text style={s.countPillText}>{unreadCount}</Text>
+                </View>
+              )}
+              {notificationsList.length > 0 && (
+                <TouchableOpacity onPress={clearAllNotifications} style={{ marginLeft: "auto" }}>
+                  <Text style={{ fontSize: 12, color: SAGE, fontWeight: "600" }}>Clear all</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          }
+          ListEmptyComponent={
+            <View style={s.emptyWrap}>
+              <View style={s.emptyIconBox}>
+                <Ionicons
+                  name="notifications-off-outline"
+                  size={30}
+                  color={MUTED_GRAY}
+                  style={{ opacity: 0.5 }}
+                />
+              </View>
+              <Text style={s.emptyText}>No notifications yet</Text>
+              <Text style={s.emptySubText}>Order updates and alerts will appear here</Text>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[
+                s.notificationItem,
+                !item.read && { backgroundColor: "rgba(79,95,82,0.05)" },
+              ]}
+              onPress={() => handleNotificationPress(item)}
+            >
+              <View style={s.notificationContent}>
+                <Text style={s.notificationMessage}>{item.message}</Text>
+                <Text style={s.notificationTime}>
+                  {new Date(item.created_at).toLocaleString()}
+                </Text>
+              </View>
+              {!item.read && <View style={s.unreadDot} />}
+            </TouchableOpacity>
+          )}
+          contentContainerStyle={{ paddingBottom: 24 }}
+        />
+      ) : (
+        <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={SAGE}
+              colors={[SAGE]}
+            />
+          }
+          contentContainerStyle={{ paddingBottom: 24 }}
+        >
+          {renderContent()}
+        </ScrollView>
+      )}
 
+      {/* ─── Bottom Tab Bar ─── */}
       <View style={s.tabBar}>
         {[
           { key: "menu", label: "Menu", icon: "restaurant-outline", activeIcon: "restaurant" },
@@ -842,6 +1049,7 @@ export default function CustomerDashboard() {
           { key: "profile", label: "Profile", icon: "person-outline", activeIcon: "person" },
         ].map((tab) => {
           const active = activeTab === tab.key;
+          const badgeCount = tab.key === "notifications" ? unreadCount : 0;
           return (
             <TouchableOpacity
               key={tab.key}
@@ -857,11 +1065,17 @@ export default function CustomerDashboard() {
                 />
               </View>
               <Text style={[s.tabLabel, active && s.tabLabelActive]}>{tab.label}</Text>
+              {badgeCount > 0 && (
+                <View style={s.tabBadge}>
+                  <Text style={s.tabBadgeText}>{badgeCount}</Text>
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
       </View>
 
+      {/* ─── Cart FAB ─── */}
       {cart.length > 0 && (
         <TouchableOpacity onPress={() => setShowCart(true)} style={s.cartFab} activeOpacity={0.88}>
           <LinearGradient colors={[SAGE, SAGE_DARK]} style={s.cartFabGrad}>
@@ -873,7 +1087,7 @@ export default function CustomerDashboard() {
         </TouchableOpacity>
       )}
 
-      {/* Product Detail Modal */}
+      {/* ─── Product Detail Modal ─── */}
       <Modal visible={productModalVisible} animationType="slide" transparent>
         <View style={s.modalOverlay}>
           <View style={s.productModal}>
@@ -881,14 +1095,25 @@ export default function CustomerDashboard() {
 
             <LinearGradient colors={[SAGE, SAGE_DARK]} style={s.modalHeader}>
               <View style={s.modalHeaderBlob} />
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
                 <View style={{ flex: 1 }}>
                   <Text style={s.modalTitle}>{selectedProduct?.name}</Text>
                   <Text style={s.modalPrice}>
-                    ₱{selectedProduct && parseFloat(String(selectedProduct.base_price)).toLocaleString()}
+                    ₱
+                    {selectedProduct &&
+                      parseFloat(String(selectedProduct.base_price)).toLocaleString()}
                   </Text>
                 </View>
-                <TouchableOpacity onPress={() => setProductModalVisible(false)} style={s.modalCloseBtn}>
+                <TouchableOpacity
+                  onPress={() => setProductModalVisible(false)}
+                  style={s.modalCloseBtn}
+                >
                   <Ionicons name="close" size={18} color={SOFT_WHITE} />
                 </TouchableOpacity>
               </View>
@@ -913,7 +1138,12 @@ export default function CustomerDashboard() {
                           <Text style={[s.optionChipText, active && s.optionChipTextActive]}>
                             {size.size_name}
                           </Text>
-                          <Text style={[s.optionChipSub, active && { color: "rgba(255,255,255,0.75)" }]}>
+                          <Text
+                            style={[
+                              s.optionChipSub,
+                              active && { color: "rgba(255,255,255,0.75)" },
+                            ]}
+                          >
                             +₱{size.price_modifier}
                           </Text>
                         </TouchableOpacity>
@@ -964,7 +1194,10 @@ export default function CustomerDashboard() {
                             </Text>
                             {size.price_modifier > 0 && (
                               <Text
-                                style={[s.optionChipSub, active && { color: "rgba(255,255,255,0.75)" }]}
+                                style={[
+                                  s.optionChipSub,
+                                  active && { color: "rgba(255,255,255,0.75)" },
+                                ]}
                               >
                                 +₱{size.price_modifier}
                               </Text>
@@ -997,7 +1230,14 @@ export default function CustomerDashboard() {
                 </View>
               </View>
 
-              <View style={{ flexDirection: "row", gap: 10, marginTop: 20, marginBottom: 10 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  gap: 10,
+                  marginTop: 20,
+                  marginBottom: 10,
+                }}
+              >
                 <TouchableOpacity
                   onPress={() => setProductModalVisible(false)}
                   style={s.modalCancelBtn}
@@ -1040,7 +1280,7 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
-      {/* Cart Modal */}
+      {/* ─── Cart Modal ─── */}
       <Modal visible={showCart} animationType="slide" transparent>
         <View style={s.cartOverlay}>
           <View style={s.cartSheet}>
@@ -1075,7 +1315,9 @@ export default function CustomerDashboard() {
                     <ProductImage imageUrl={item.product.image_url} size={42} />
                     <View style={{ flex: 1, marginLeft: 10 }}>
                       <Text style={s.cartItemName}>{item.product.name}</Text>
-                      {item.sizeName && <Text style={s.cartItemMeta}>Size: {item.sizeName}</Text>}
+                      {item.sizeName && (
+                        <Text style={s.cartItemMeta}>Size: {item.sizeName}</Text>
+                      )}
                       {item.cakeSizeName && (
                         <Text style={s.cartItemMeta}>Cake: {item.cakeSizeName}</Text>
                       )}
@@ -1088,7 +1330,10 @@ export default function CustomerDashboard() {
                     </View>
                     <View style={{ alignItems: "flex-end", gap: 6 }}>
                       <Text style={s.cartItemTotal}>₱{total.toLocaleString()}</Text>
-                      <TouchableOpacity onPress={() => removeFromCart(index)} style={s.cartRemoveBtn}>
+                      <TouchableOpacity
+                        onPress={() => removeFromCart(index)}
+                        style={s.cartRemoveBtn}
+                      >
                         <Ionicons name="trash-outline" size={14} color="#EF4444" />
                       </TouchableOpacity>
                     </View>
@@ -1099,13 +1344,18 @@ export default function CustomerDashboard() {
                 <View style={{ padding: 16 }}>
                   <View style={s.cartTotal}>
                     <Text style={s.cartTotalLabel}>Total</Text>
-                    <Text style={s.cartTotalValue}>₱{calculateTotal().toLocaleString()}</Text>
+                    <Text style={s.cartTotalValue}>
+                      ₱{calculateTotal().toLocaleString()}
+                    </Text>
                   </View>
 
                   <View style={s.cartDivider} />
 
                   <Text style={s.scheduleLabel}>PICKUP SCHEDULE</Text>
-                  <TouchableOpacity onPress={() => setShowDatePicker(true)} style={s.schedulePill}>
+                  <TouchableOpacity
+                    onPress={() => setShowDatePicker(true)}
+                    style={s.schedulePill}
+                  >
                     <View style={s.schedulePillLeft}>
                       <Ionicons name="calendar-outline" size={16} color={SAGE} />
                       <Text style={s.schedulePillLabel}>Date</Text>
@@ -1116,14 +1366,20 @@ export default function CustomerDashboard() {
                     </View>
                   </TouchableOpacity>
 
-                  <TouchableOpacity onPress={() => setShowTimePicker(true)} style={s.schedulePill}>
+                  <TouchableOpacity
+                    onPress={() => setShowTimePicker(true)}
+                    style={s.schedulePill}
+                  >
                     <View style={s.schedulePillLeft}>
                       <Ionicons name="time-outline" size={16} color={SAGE} />
                       <Text style={s.schedulePillLabel}>Time</Text>
                     </View>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                       <Text style={s.schedulePillValue}>
-                        {pickupTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {pickupTime.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </Text>
                       <Ionicons name="chevron-forward" size={14} color={MUTED_GRAY} />
                     </View>
@@ -1164,7 +1420,7 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
-      {/* Payment Modal – Updated Layout with ScrollView and fixed footer */}
+      {/* ─── Payment Modal ─── */}
       <Modal visible={showPaymentModal} animationType="slide" transparent>
         <View style={s.modalOverlay}>
           <View style={s.paymentSheet}>
@@ -1177,7 +1433,6 @@ export default function CustomerDashboard() {
               </TouchableOpacity>
             </View>
 
-            {/* Scrollable content area */}
             <ScrollView style={s.paymentContent} showsVerticalScrollIndicator={false}>
               <View style={s.paymentBody}>
                 <Text style={s.paymentAmountLabel}>Order Total</Text>
@@ -1186,8 +1441,10 @@ export default function CustomerDashboard() {
                 </Text>
 
                 {(() => {
-                  const isPartiallyPaid = pendingOrder?.payment_status === 'partially_paid';
-                  const remainingBalance = isPartiallyPaid ? (pendingOrder?.total_amount || 0) * 0.7 : 0;
+                  const isPartiallyPaid = pendingOrder?.payment_status === "partially_paid";
+                  const remainingBalance = isPartiallyPaid
+                    ? (pendingOrder?.total_amount || 0) * 0.7
+                    : 0;
 
                   return (
                     <>
@@ -1197,7 +1454,9 @@ export default function CustomerDashboard() {
                           <Text style={[s.paymentAmount, { fontSize: 18, color: SAGE }]}>
                             ₱{(pendingOrder?.total_amount || 0) * 0.3}
                           </Text>
-                          <Text style={[s.paymentAmountLabel, { marginTop: 6 }]}>Remaining Balance</Text>
+                          <Text style={[s.paymentAmountLabel, { marginTop: 6 }]}>
+                            Remaining Balance
+                          </Text>
                           <Text style={[s.paymentAmount, { fontSize: 20, color: SAGE }]}>
                             ₱{remainingBalance.toLocaleString()}
                           </Text>
@@ -1205,41 +1464,76 @@ export default function CustomerDashboard() {
                       )}
 
                       <Text style={s.paymentOptionLabel}>
-                        {isPartiallyPaid ? 'Pay Remaining Balance' : 'Choose Payment Option'}
+                        {isPartiallyPaid ? "Pay Remaining Balance" : "Choose Payment Option"}
                       </Text>
 
                       {!isPartiallyPaid ? (
                         <View style={s.paymentOptionRow}>
                           <TouchableOpacity
-                            style={[s.paymentOptionChip, paymentOption === "down" && s.paymentOptionChipActive]}
+                            style={[
+                              s.paymentOptionChip,
+                              paymentOption === "down" && s.paymentOptionChipActive,
+                            ]}
                             onPress={() => setPaymentOption("down")}
                           >
-                            <Text style={[s.paymentOptionText, paymentOption === "down" && s.paymentOptionTextActive]}>
+                            <Text
+                              style={[
+                                s.paymentOptionText,
+                                paymentOption === "down" && s.paymentOptionTextActive,
+                              ]}
+                            >
                               30% Down Payment
                             </Text>
-                            <Text style={[s.paymentOptionPrice, paymentOption === "down" && { color: "#fff" }]}>
-                              ₱{pendingOrder ? (pendingOrder.total_amount * 0.3).toLocaleString() : 0}
+                            <Text
+                              style={[
+                                s.paymentOptionPrice,
+                                paymentOption === "down" && { color: "#fff" },
+                              ]}
+                            >
+                              ₱
+                              {pendingOrder
+                                ? (pendingOrder.total_amount * 0.3).toLocaleString()
+                                : 0}
                             </Text>
                           </TouchableOpacity>
                           <TouchableOpacity
-                            style={[s.paymentOptionChip, paymentOption === "full" && s.paymentOptionChipActive]}
+                            style={[
+                              s.paymentOptionChip,
+                              paymentOption === "full" && s.paymentOptionChipActive,
+                            ]}
                             onPress={() => setPaymentOption("full")}
                           >
-                            <Text style={[s.paymentOptionText, paymentOption === "full" && s.paymentOptionTextActive]}>
+                            <Text
+                              style={[
+                                s.paymentOptionText,
+                                paymentOption === "full" && s.paymentOptionTextActive,
+                              ]}
+                            >
                               Full Payment
                             </Text>
-                            <Text style={[s.paymentOptionPrice, paymentOption === "full" && { color: "#fff" }]}>
+                            <Text
+                              style={[
+                                s.paymentOptionPrice,
+                                paymentOption === "full" && { color: "#fff" },
+                              ]}
+                            >
                               ₱{pendingOrder?.total_amount?.toLocaleString()}
                             </Text>
                           </TouchableOpacity>
                         </View>
                       ) : (
-                        <View style={[s.paymentOptionRow, { justifyContent: 'center' }]}>
-                          <View style={[s.paymentOptionChip, s.paymentOptionChipActive, { flex: 1 }]}>
+                        <View style={[s.paymentOptionRow, { justifyContent: "center" }]}>
+                          <View
+                            style={[
+                              s.paymentOptionChip,
+                              s.paymentOptionChipActive,
+                              { flex: 1 },
+                            ]}
+                          >
                             <Text style={[s.paymentOptionText, s.paymentOptionTextActive]}>
                               Remaining Balance
                             </Text>
-                            <Text style={[s.paymentOptionPrice, { color: '#fff' }]}>
+                            <Text style={[s.paymentOptionPrice, { color: "#fff" }]}>
                               ₱{remainingBalance.toLocaleString()}
                             </Text>
                           </View>
@@ -1252,10 +1546,18 @@ export default function CustomerDashboard() {
                 <Text style={s.paymentMethodLabel}>Payment Method</Text>
                 <View style={s.paymentMethodOptions}>
                   <TouchableOpacity
-                    style={[s.paymentMethodChip, paymentMethod === "gcash" && s.paymentMethodChipActive]}
+                    style={[
+                      s.paymentMethodChip,
+                      paymentMethod === "gcash" && s.paymentMethodChipActive,
+                    ]}
                     onPress={() => setPaymentMethod("gcash")}
                   >
-                    <Text style={[s.paymentMethodText, paymentMethod === "gcash" && s.paymentMethodTextActive]}>
+                    <Text
+                      style={[
+                        s.paymentMethodText,
+                        paymentMethod === "gcash" && s.paymentMethodTextActive,
+                      ]}
+                    >
                       GCash
                     </Text>
                   </TouchableOpacity>
@@ -1271,7 +1573,6 @@ export default function CustomerDashboard() {
               </View>
             </ScrollView>
 
-            {/* Fixed footer with Pay button */}
             <View style={s.paymentFooter}>
               <TouchableOpacity
                 onPress={submitPayment}
@@ -1284,7 +1585,7 @@ export default function CustomerDashboard() {
                 ) : (
                   <Text style={s.paymentButtonText}>
                     {(() => {
-                      const isPartiallyPaid = pendingOrder?.payment_status === 'partially_paid';
+                      const isPartiallyPaid = pendingOrder?.payment_status === "partially_paid";
                       const amount = isPartiallyPaid
                         ? (pendingOrder?.total_amount || 0) * 0.7
                         : paymentOption === "down"
@@ -1300,7 +1601,7 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
-      {/* Stock Error Modal */}
+      {/* ─── Stock Error Modal ─── */}
       <Modal
         visible={stockErrorModalVisible}
         animationType="fade"
@@ -1315,7 +1616,9 @@ export default function CustomerDashboard() {
             </View>
             <View style={s.stockErrorBody}>
               {stockErrorMessages.map((msg, idx) => (
-                <Text key={idx} style={s.stockErrorText}>{msg}</Text>
+                <Text key={idx} style={s.stockErrorText}>
+                  {msg}
+                </Text>
               ))}
             </View>
             <TouchableOpacity
@@ -1328,6 +1631,99 @@ export default function CustomerDashboard() {
         </View>
       </Modal>
 
+      {/* ─── Order Detail Modal (from notification) ─── */}
+      {showOrderDetailModal && selectedOrderForDetails && (
+        <Modal
+          visible={showOrderDetailModal}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setShowOrderDetailModal(false)}
+        >
+          <View style={s.modalOverlay}>
+            <View style={s.orderDetailModal}>
+              <View style={s.modalHandle} />
+
+              {/* Header */}
+              <View style={s.orderDetailHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.orderDetailTitle}>
+                    Order #{selectedOrderForDetails.order_number}
+                  </Text>
+                  <Text style={s.orderDetailDate}>
+                    {formatDate(selectedOrderForDetails.pickup_date)}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setShowOrderDetailModal(false)}
+                  style={s.modalCloseBtn}
+                >
+                  <Ionicons name="close" size={18} color={SOFT_WHITE} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ padding: 16, maxHeight: "80%" }}>
+                {/* Status */}
+                <View style={s.orderDetailStatusRow}>
+                  <StatusBadge status={selectedOrderForDetails.status} />
+                  <Text style={s.orderDetailStatusLabel}>Status</Text>
+                </View>
+
+                {/* Items */}
+                <Text style={s.orderDetailSectionTitle}>Items</Text>
+                {selectedOrderForDetails.items?.map((item, idx) => (
+                  <View key={idx} style={s.orderDetailItem}>
+                    <ProductImage imageUrl={item.menu.image_url} size={50} />
+                    <View style={s.orderDetailItemInfo}>
+                      <Text style={s.orderDetailItemName}>{item.menu.name}</Text>
+                      <Text style={s.orderDetailItemQty}>
+                        Qty: {item.quantity} × ₱{item.unit_price}
+                      </Text>
+                    </View>
+                    <Text style={s.orderDetailItemTotal}>
+                      ₱{(item.quantity * item.unit_price).toLocaleString()}
+                    </Text>
+                  </View>
+                ))}
+
+                {/* Total */}
+                <View style={s.orderDetailTotalRow}>
+                  <Text style={s.orderDetailTotalLabel}>Total Amount</Text>
+                  <Text style={s.orderDetailTotalValue}>
+                    ₱{selectedOrderForDetails.total_amount.toLocaleString()}
+                  </Text>
+                </View>
+
+                {/* Payment status */}
+                <View style={s.orderDetailPaymentRow}>
+                  <Text style={s.orderDetailPaymentLabel}>Payment Status</Text>
+                  <Text style={s.orderDetailPaymentValue}>
+                    {selectedOrderForDetails.payment_status?.toUpperCase() || "UNPAID"}
+                  </Text>
+                </View>
+
+                {/* Notes if any */}
+                {selectedOrderForDetails.notes && (
+                  <View style={s.orderDetailNotes}>
+                    <Text style={s.orderDetailNotesLabel}>Notes</Text>
+                    <Text style={s.orderDetailNotesText}>
+                      {selectedOrderForDetails.notes}
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={s.orderDetailCloseBtn}
+                onPress={() => setShowOrderDetailModal(false)}
+              >
+                <Text style={s.orderDetailCloseBtnText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* ─── Date / Time Pickers ─── */}
       {showDatePicker && (
         <DateTimePicker
           value={pickupDate}
@@ -1364,6 +1760,9 @@ export default function CustomerDashboard() {
           }}
         />
       )}
+
+      {/* ─── Toast ─── */}
+      <Toast />
     </SafeAreaView>
   );
 }
@@ -1372,7 +1771,6 @@ export default function CustomerDashboard() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: CREAM },
 
-  // Header
   header: {
     paddingTop: 8,
     paddingBottom: 16,
@@ -1429,7 +1827,6 @@ const s = StyleSheet.create({
   },
   headerStampsText: { fontSize: 12, fontWeight: "600", color: "rgba(255,243,217,0.85)" },
 
-  // Category tabs
   catScroll: { paddingVertical: 14 },
   catPill: {
     paddingHorizontal: 18,
@@ -1452,7 +1849,6 @@ const s = StyleSheet.create({
   catPillText: { fontSize: 13, fontWeight: "600", color: MUTED_GRAY },
   catPillTextActive: { color: "#fff" },
 
-  // Count label
   countLabel: {
     fontSize: 11,
     fontWeight: "600",
@@ -1462,7 +1858,6 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
 
-  // Products grid
   productGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1484,7 +1879,12 @@ const s = StyleSheet.create({
     elevation: 3,
   },
   productCardAccent: { height: 3, backgroundColor: SAGE, opacity: 0.6 },
-  productImgWrap: { alignItems: "center", paddingTop: 14, paddingBottom: 6, position: "relative" },
+  productImgWrap: {
+    alignItems: "center",
+    paddingTop: 14,
+    paddingBottom: 6,
+    position: "relative",
+  },
   productInfo: { paddingHorizontal: 12, paddingBottom: 10 },
   productName: {
     fontSize: 13,
@@ -1520,8 +1920,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Tab content wrapper
-  tabContent: { padding: 16 },
+  tabContent: { padding: 16, flex: 1 },
   tabHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 },
   tabHeaderIcon: {
     width: 28,
@@ -1538,7 +1937,6 @@ const s = StyleSheet.create({
   },
   tabTitle: { fontSize: 18, fontWeight: "800", color: SAGE, letterSpacing: -0.5 },
 
-  // Count pill
   countPill: {
     backgroundColor: "rgba(79,95,82,0.1)",
     borderRadius: 999,
@@ -1549,7 +1947,6 @@ const s = StyleSheet.create({
   },
   countPillText: { fontSize: 11, fontWeight: "700", color: SAGE },
 
-  // Status badge
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1562,7 +1959,6 @@ const s = StyleSheet.create({
   statusDot: { width: 5, height: 5, borderRadius: 3 },
   statusText: { fontSize: 11, fontWeight: "700", textTransform: "capitalize" },
 
-  // Order cards
   orderCard: {
     backgroundColor: "#fff",
     borderRadius: 18,
@@ -1601,7 +1997,6 @@ const s = StyleSheet.create({
   orderTotal: { fontSize: 18, fontWeight: "800", color: SAGE, letterSpacing: -0.5 },
   orderTotalLabel: { fontSize: 11, color: MUTED_GRAY, fontWeight: "500" },
 
-  // Pay button on order card (old design)
   payButton: {
     marginHorizontal: 14,
     marginBottom: 14,
@@ -1616,7 +2011,6 @@ const s = StyleSheet.create({
     fontSize: 14,
   },
 
-  // Loader / empty states
   loaderWrap: { alignItems: "center", paddingTop: 48, gap: 10 },
   loaderText: { fontSize: 13, color: MUTED_GRAY, fontWeight: "500" },
   emptyWrap: { alignItems: "center", paddingTop: 48, paddingHorizontal: 32 },
@@ -1635,10 +2029,8 @@ const s = StyleSheet.create({
   emptyText: { fontSize: 15, fontWeight: "700", color: SAGE, marginBottom: 6 },
   emptySubText: { fontSize: 12, color: MUTED_GRAY, textAlign: "center", lineHeight: 18 },
 
-  // Image fallback
   imgFallback: { backgroundColor: CREAM, alignItems: "center", justifyContent: "center" },
 
-  // Profile
   profileCard: {
     backgroundColor: "#fff",
     borderRadius: 20,
@@ -1670,10 +2062,16 @@ const s = StyleSheet.create({
   profileAvatarText: { fontSize: 24, fontWeight: "800", color: "#fff" },
   profileName: { fontSize: 18, fontWeight: "800", color: SAGE, letterSpacing: -0.5, marginBottom: 4 },
   profileEmail: { fontSize: 13, color: MUTED_GRAY },
-  profileDivider: { height: 1, backgroundColor: "rgba(242,237,228,0.9)", width: "100%", marginVertical: 14 },
+  profileDivider: {
+    height: 1,
+    backgroundColor: "rgba(242,237,228,0.9)",
+    width: "100%",
+    marginVertical: 14,
+  },
   profileInfoRow: { flexDirection: "row", gap: 20 },
   profileInfoItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   profileInfoText: { fontSize: 13, color: MUTED_GRAY, fontWeight: "500" },
+
   verifCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -1688,6 +2086,7 @@ const s = StyleSheet.create({
   verifCardLeft: { flexDirection: "row", alignItems: "center" },
   verifType: { fontSize: 13, fontWeight: "700", color: SAGE, textTransform: "capitalize" },
   verifLabel: { fontSize: 10, color: MUTED_GRAY, marginTop: 2 },
+
   stampsCard: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -1718,6 +2117,7 @@ const s = StyleSheet.create({
     elevation: 2,
   },
   stampsHint: { fontSize: 11, color: MUTED_GRAY },
+
   logoutBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1731,7 +2131,6 @@ const s = StyleSheet.create({
   },
   logoutText: { fontSize: 15, fontWeight: "700", color: "#EF4444" },
 
-  // Bottom tab bar
   tabBar: {
     flexDirection: "row",
     backgroundColor: "#fff",
@@ -1745,13 +2144,31 @@ const s = StyleSheet.create({
     shadowRadius: 6,
     elevation: 8,
   },
-  tabItem: { flex: 1, alignItems: "center", paddingVertical: 4 },
-  tabIconWrap: { width: 38, height: 28, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  tabItem: { flex: 1, alignItems: "center", paddingVertical: 4, position: "relative" },
+  tabIconWrap: {
+    width: 38,
+    height: 28,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   tabIconWrapActive: { backgroundColor: SAGE },
   tabLabel: { fontSize: 10, fontWeight: "500", color: MUTED_GRAY, marginTop: 3 },
   tabLabelActive: { color: SAGE, fontWeight: "700" },
+  tabBadge: {
+    position: "absolute",
+    top: 0,
+    right: 10,
+    backgroundColor: "#EF4444",
+    borderRadius: 999,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
 
-  // Cart FAB
   cartFab: {
     position: "absolute",
     bottom: 80,
@@ -1782,7 +2199,6 @@ const s = StyleSheet.create({
   },
   cartBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
 
-  // Modal shared
   modalHandle: {
     width: 36,
     height: 4,
@@ -1809,7 +2225,13 @@ const s = StyleSheet.create({
     right: -30,
   },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#fff", letterSpacing: -0.4 },
-  modalPrice: { fontSize: 22, fontWeight: "800", color: "rgba(255,243,217,0.9)", letterSpacing: -0.5, marginTop: 2 },
+  modalPrice: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "rgba(255,243,217,0.9)",
+    letterSpacing: -0.5,
+    marginTop: 2,
+  },
   modalDesc: { fontSize: 12, color: "rgba(255,255,255,0.65)", marginTop: 6, lineHeight: 18 },
   modalCloseBtn: {
     width: 32,
@@ -1871,7 +2293,6 @@ const s = StyleSheet.create({
     paddingTop: 12,
   },
 
-  // Options
   optionSection: { marginBottom: 18 },
   optionTitle: {
     fontSize: 12,
@@ -1903,6 +2324,7 @@ const s = StyleSheet.create({
   optionChipText: { fontSize: 13, fontWeight: "600", color: MUTED_GRAY },
   optionChipTextActive: { color: "#fff" },
   optionChipSub: { fontSize: 10, color: MUTED_GRAY, marginTop: 1, fontWeight: "500" },
+
   qtyRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1924,7 +2346,6 @@ const s = StyleSheet.create({
   },
   qtyValue: { fontSize: 18, fontWeight: "800", color: SAGE, minWidth: 28, textAlign: "center" },
 
-  // Cart sheet
   cartOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(20,28,22,0.5)" },
   cartSheet: {
     backgroundColor: "#fff",
@@ -1959,6 +2380,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   cartItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -1978,6 +2400,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   cartTotal: {
     flexDirection: "row",
     alignItems: "center",
@@ -1988,7 +2411,6 @@ const s = StyleSheet.create({
   cartTotalValue: { fontSize: 22, fontWeight: "800", color: SAGE, letterSpacing: -0.5 },
   cartDivider: { height: 1, backgroundColor: "rgba(242,237,228,0.8)", marginBottom: 14 },
 
-  // Schedule
   scheduleLabel: {
     fontSize: 10,
     fontWeight: "700",
@@ -2012,7 +2434,6 @@ const s = StyleSheet.create({
   schedulePillLabel: { fontSize: 13, fontWeight: "600", color: SAGE },
   schedulePillValue: { fontSize: 13, color: SAGE, fontWeight: "500" },
 
-  // Notes & place order
   notesInput: {
     backgroundColor: "#FAFAFA",
     borderRadius: 14,
@@ -2043,7 +2464,6 @@ const s = StyleSheet.create({
   },
   placeOrderText: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
 
-  // Payment modal styles (updated)
   paymentSheet: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
@@ -2062,40 +2482,13 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: CREAM,
   },
-  paymentTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: SAGE,
-  },
-  paymentContent: {
-    flex: 1,
-  },
-  paymentBody: {
-    padding: 20,
-    paddingBottom: 10,
-  },
-  paymentAmountLabel: {
-    fontSize: 12,
-    color: MUTED_GRAY,
-    marginBottom: 4,
-  },
-  paymentAmount: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: SAGE,
-    marginBottom: 20,
-  },
-  paymentOptionLabel: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: SAGE,
-    marginBottom: 10,
-  },
-  paymentOptionRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 20,
-  },
+  paymentTitle: { fontSize: 18, fontWeight: "800", color: SAGE },
+  paymentContent: { flex: 1 },
+  paymentBody: { padding: 20, paddingBottom: 10 },
+  paymentAmountLabel: { fontSize: 12, color: MUTED_GRAY, marginBottom: 4 },
+  paymentAmount: { fontSize: 22, fontWeight: "800", color: SAGE, marginBottom: 20 },
+  paymentOptionLabel: { fontSize: 14, fontWeight: "700", color: SAGE, marginBottom: 10 },
+  paymentOptionRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
   paymentOptionChip: {
     flex: 1,
     paddingVertical: 12,
@@ -2105,35 +2498,13 @@ const s = StyleSheet.create({
     backgroundColor: "#FAFAFA",
     alignItems: "center",
   },
-  paymentOptionChipActive: {
-    backgroundColor: SAGE,
-    borderColor: SAGE,
-  },
-  paymentOptionText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: MUTED_GRAY,
-    marginBottom: 4,
-  },
-  paymentOptionTextActive: {
-    color: "#fff",
-  },
-  paymentOptionPrice: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: SAGE,
-  },
-  paymentMethodLabel: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: SAGE,
-    marginBottom: 10,
-  },
-  paymentMethodOptions: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 20,
-  },
+  paymentOptionChipActive: { backgroundColor: SAGE, borderColor: SAGE },
+  paymentOptionText: { fontSize: 13, fontWeight: "600", color: MUTED_GRAY, marginBottom: 4 },
+  paymentOptionTextActive: { color: "#fff" },
+  paymentOptionPrice: { fontSize: 15, fontWeight: "800", color: SAGE },
+
+  paymentMethodLabel: { fontSize: 14, fontWeight: "700", color: SAGE, marginBottom: 10 },
+  paymentMethodOptions: { flexDirection: "row", gap: 12, marginBottom: 20 },
   paymentMethodChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -2142,18 +2513,10 @@ const s = StyleSheet.create({
     borderColor: "rgba(166,162,154,0.3)",
     backgroundColor: "#FAFAFA",
   },
-  paymentMethodChipActive: {
-    backgroundColor: SAGE,
-    borderColor: SAGE,
-  },
-  paymentMethodText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: MUTED_GRAY,
-  },
-  paymentMethodTextActive: {
-    color: "#fff",
-  },
+  paymentMethodChipActive: { backgroundColor: SAGE, borderColor: SAGE },
+  paymentMethodText: { fontSize: 14, fontWeight: "600", color: MUTED_GRAY },
+  paymentMethodTextActive: { color: "#fff" },
+
   paymentReferenceInput: {
     backgroundColor: "#FAFAFA",
     borderRadius: 12,
@@ -2178,14 +2541,8 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  paymentButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-  },
+  paymentButtonText: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.3 },
 
-  // ── Stock Error Modal Styles ──
   stockErrorModal: {
     backgroundColor: "#fff",
     borderRadius: 20,
@@ -2205,29 +2562,168 @@ const s = StyleSheet.create({
     gap: 10,
     marginBottom: 16,
   },
-  stockErrorTitle: {
+  stockErrorTitle: { fontSize: 18, fontWeight: "700", color: SAGE },
+  stockErrorBody: { marginBottom: 20, gap: 6 },
+  stockErrorText: { fontSize: 14, color: SAGE, lineHeight: 20 },
+  stockErrorButton: { backgroundColor: SAGE, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
+  stockErrorButtonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+
+  notificationItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "rgba(242,237,228,0.9)",
+  },
+  notificationContent: { flex: 1 },
+  notificationMessage: { fontSize: 14, color: SAGE, fontWeight: "500" },
+  notificationTime: { fontSize: 11, color: MUTED_GRAY, marginTop: 4 },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: SAGE,
+    marginLeft: 8,
+  },
+
+  // ── Order Detail Modal styles ──
+  orderDetailModal: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    maxHeight: "92%",
+    width: "100%",
+    alignSelf: "center",
+  },
+  orderDetailHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(242,237,228,0.8)",
+  },
+  orderDetailTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: SAGE,
   },
-  stockErrorBody: {
-    marginBottom: 20,
-    gap: 6,
+  orderDetailDate: {
+    fontSize: 12,
+    color: MUTED_GRAY,
+    marginTop: 2,
   },
-  stockErrorText: {
+  orderDetailStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  orderDetailStatusLabel: {
+    fontSize: 12,
+    color: MUTED_GRAY,
+    fontWeight: "500",
+  },
+  orderDetailSectionTitle: {
     fontSize: 14,
+    fontWeight: "700",
     color: SAGE,
-    lineHeight: 20,
+    marginBottom: 10,
+    marginTop: 4,
   },
-  stockErrorButton: {
-    backgroundColor: SAGE,
+  orderDetailItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(242,237,228,0.6)",
+  },
+  orderDetailItemInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  orderDetailItemName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: SAGE,
+  },
+  orderDetailItemQty: {
+    fontSize: 12,
+    color: MUTED_GRAY,
+  },
+  orderDetailItemTotal: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: SAGE,
+  },
+  orderDetailTotalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(242,237,228,0.8)",
+    marginTop: 8,
+  },
+  orderDetailTotalLabel: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: SAGE,
+  },
+  orderDetailTotalValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: SAGE,
+  },
+  orderDetailPaymentRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  orderDetailPaymentLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: MUTED_GRAY,
+  },
+  orderDetailPaymentValue: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: SAGE,
+  },
+  orderDetailNotes: {
+    marginTop: 12,
+    padding: 10,
+    backgroundColor: "rgba(242,237,228,0.5)",
+    borderRadius: 8,
+  },
+  orderDetailNotesLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: MUTED_GRAY,
+    marginBottom: 4,
+  },
+  orderDetailNotesText: {
+    fontSize: 13,
+    color: SAGE,
+  },
+  orderDetailCloseBtn: {
+    backgroundColor: SAGE,
+    paddingVertical: 14,
+    marginHorizontal: 16,
+    marginBottom: 16,
     borderRadius: 12,
     alignItems: "center",
   },
-  stockErrorButtonText: {
+  orderDetailCloseBtnText: {
     color: "#fff",
-    fontWeight: "600",
     fontSize: 16,
+    fontWeight: "700",
   },
 });

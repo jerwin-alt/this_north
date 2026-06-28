@@ -7,6 +7,7 @@ use App\Models\UserActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use App\Events\OrderStatusChanged;
 
 class AdminOrderController extends Controller
 {
@@ -124,6 +125,16 @@ class AdminOrderController extends Controller
             'message' => 'Order approved and schedule confirmed.',
             'order'   => $order->fresh('items.menu'),
         ]);
+
+
+        $order->status = 'confirmed';
+        $order->save();
+
+        event(new OrderStatusChanged(
+            $order,
+            "Your order #{$order->order_number} has been approved.",
+            'approved'
+        ));
     }
 
     /**
@@ -178,6 +189,17 @@ class AdminOrderController extends Controller
             'message' => 'Order rejected successfully.',
             'order'   => $order->fresh(),
         ]);
+
+
+        $order->status = 'cancelled';
+        $order->notes = $oldNotes . "\n[REJECTED]: " . $reason;
+        $order->save();
+
+        event(new OrderStatusChanged(
+            $order,
+            "Your order #{$order->order_number} has been rejected. Reason: {$reason}",
+            'rejected'
+        ));
     }
 
     /**
@@ -238,6 +260,15 @@ class AdminOrderController extends Controller
             'message' => 'Schedule updated successfully.',
             'order'   => $order->fresh('items.menu'),
         ]);
+
+
+        $order->update($validated);
+        event(new OrderStatusChanged(
+            $order,
+            "Your order #{$order->order_number} has been rescheduled to {$validated['pickup_date']} at {$validated['pickup_time']}.",
+            'rescheduled',
+            ['pickup_date' => $validated['pickup_date'], 'pickup_time' => $validated['pickup_time']]
+        ));
     }
 
         public function byDate(Request $request)
@@ -258,5 +289,8 @@ class AdminOrderController extends Controller
             'orders' => $orders,
             'date'   => $date,
         ]);
+
+
+
     }
 }

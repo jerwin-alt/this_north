@@ -350,6 +350,19 @@ class StaffOrderController extends Controller
                 'message' => 'Failed to update status: ' . $e->getMessage()
             ], 500);
         }
+
+
+        $order->status = $newStatus;
+        $order->save();
+
+        $messages = [
+            'preparing' => "Your order #{$order->order_number} is now being prepared.",
+            'ready'     => "Your order #{$order->order_number} is ready for pickup.",
+            'completed' => "Your order #{$order->order_number} has been completed.",
+        ];
+        if (isset($messages[$newStatus])) {
+            event(new OrderStatusChanged($order, $messages[$newStatus], $newStatus));
+        }
     }
 
     /**

@@ -1,3 +1,5 @@
+// app/index.tsx
+
 import React, { useEffect } from 'react';
 import {
   View,
@@ -29,12 +31,19 @@ const SAGE_DARK = '#3e4c42';
 export default function Index() {
   const { user, getUser } = useAuth();
 
+  // ── Load user on mount ──
   useEffect(() => {
-    // Ensure user state is loaded
     getUser();
   }, []);
 
-  // Show loading while checking authentication
+  // ── Navigate to dashboard once user is loaded and authenticated ──
+  useEffect(() => {
+    if (user !== undefined && user !== null) {
+      router.replace('/customer/customerDashboard');
+    }
+  }, [user]);
+
+  // ── Show loading spinner while user is being fetched ──
   if (user === undefined) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -45,13 +54,7 @@ export default function Index() {
     );
   }
 
-  // If already logged in, redirect to customer dashboard (tabs)
-  if (user !== null) {
-    router.replace('/customer/customerDashboard');
-    return null;
-  }
-
-  // Otherwise, show the public landing page
+  // ── If user is null (not logged in), show the landing page ──
   const navigateTo = (path: any) => {
     Keyboard.dismiss();
 
