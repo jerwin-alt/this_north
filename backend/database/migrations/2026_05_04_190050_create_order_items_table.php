@@ -11,7 +11,10 @@ return new class extends Migration
         Schema::create('order_items', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->constrained('orders')->onDelete('cascade');
-            $table->foreignId('menu_id')->nullable()->constrained('menu');
+            $table->foreignId('menu_id')
+                  ->nullable()
+                  ->constrained('menu')
+                  ->nullOnDelete();
             $table->enum('cake_type', ['standard', 'custom']);
             $table->foreignId('cake_size_id')->nullable()->constrained('cake_sizes');
             $table->foreignId('drink_sizes_id')->nullable()->constrained('drink_sizes');
