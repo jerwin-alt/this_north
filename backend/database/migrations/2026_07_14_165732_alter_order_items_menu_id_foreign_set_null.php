@@ -24,7 +24,7 @@ return new class extends Migration
     {
         Schema::table('order_items', function (Blueprint $table) {
             // Drop the modified foreign key
-            $table->dropForeign(['menu_id']);
+            //$table->dropForeign(['menu_id']);
 
             // Restore the original RESTRICT constraint
             $table->foreign('menu_id')
