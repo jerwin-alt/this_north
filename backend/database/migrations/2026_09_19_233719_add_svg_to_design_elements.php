@@ -6,11 +6,11 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void {
         Schema::table('design_elements', function (Blueprint $table) {
-            $table->string('svg_url')->nullable()->after('image_url');
-            $table->longText('svg_code')->nullable()->after('svg_url');
-            $table->boolean('supports_color')->default(false)->after('svg_code');
+            $table->string('svg_url')->nullable();
+            $table->longText('svg_code')->nullable();
+            $table->boolean('supports_color')->default(false);
             // e.g. ["body", "outline", "leaf"] – only the parts the user can tint
-            $table->json('color_parts')->nullable()->after('supports_color');
+            $table->json('color_parts')->nullable();
         });
     }
     public function down(): void {
