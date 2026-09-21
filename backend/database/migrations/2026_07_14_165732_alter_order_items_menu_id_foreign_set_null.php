@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::table('order_items', function (Blueprint $table) {
             // Drop the existing foreign key
-            $table->dropForeign(['menu_id']);
+            //$table->dropForeign(['menu_id']);
 
             // Re-add it with ON DELETE SET NULL
             $table->foreign('menu_id')
