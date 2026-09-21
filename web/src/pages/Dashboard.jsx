@@ -3,21 +3,30 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/auth-context';
 import {
   LayoutDashboard, Users, Package, Box, Percent, BarChart3,
-  LogOut, Cake, Menu,  UserCheck, ShoppingBag, Calendar 
+  LogOut, Cake, Menu, UserCheck, ShoppingBag, Calendar, Award,
+  AlertTriangle, ChevronDown,
 } from 'lucide-react';
 
 const menuItems = [
-  { name: 'Overview', icon: LayoutDashboard, path: '/pages/dashboard' },
-  { name: 'Users', icon: Users, path: '/pages/dashboard/users' },
-  { name: 'Customers', icon: UserCheck, path: '/pages/dashboard/customers' }, 
-  { name: 'Products', icon: Package, path: '/pages/dashboard/products' },
-  { name: 'Ingredients', icon: Box, path: '/pages/dashboard/ingredients' },
-  { name: 'Orders', icon: ShoppingBag, path: '/pages/dashboard/orders' }, 
-  { name: 'Discounts', icon: Percent, path: '/pages/dashboard/discounts' },
-  { name: 'Schedule', icon: Calendar, path: '/pages/dashboard/schedule' },
-  { name: 'Inventory', icon: Package, path: '/pages/dashboard/inventory' },
-  { name: 'Reports', icon: BarChart3, path: '/pages/dashboard/reports' },
-]
+  { name: 'Overview',    icon: LayoutDashboard, path: '/pages/dashboard' },
+  { name: 'Users',       icon: Users,           path: '/pages/dashboard/users' },
+  { name: 'Customers',   icon: UserCheck,       path: '/pages/dashboard/customers' },
+  { name: 'Products',    icon: Package,         path: '/pages/dashboard/products' },
+  { name: 'Ingredients', icon: Box,             path: '/pages/dashboard/ingredients' },
+  { name: 'Orders',      icon: ShoppingBag,     path: '/pages/dashboard/orders' },
+  { name: 'Discounts',   icon: Percent,         path: '/pages/dashboard/discounts' },
+  { name: 'Schedule',    icon: Calendar,        path: '/pages/dashboard/schedule' },
+  { name: 'Inventory',   icon: Package,         path: '/pages/dashboard/inventory' },
+  { name: 'Loyalty',     icon: Award,           path: '/pages/dashboard/loyalty' },
+  {
+    name: 'Reports',
+    icon: BarChart3,
+    children: [
+      { name: 'Reports',        icon: BarChart3,    path: '/pages/dashboard/reports' },
+      { name: 'Lost & Damages', icon: AlertTriangle, path: '/pages/dashboard/lost-and-damages' },
+    ],
+  },
+];
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -25,6 +34,7 @@ export default function Dashboard() {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [expandedMenus, setExpandedMenus] = useState({});
 
   const handleLogout = async () => {
     try {
@@ -37,11 +47,20 @@ export default function Dashboard() {
   };
 
   const today = new Date().toLocaleDateString('en-PH', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   });
+
+  // ── Resolve current page title (works for children too) ──
+  const getPageTitle = () => {
+    for (const item of menuItems) {
+      if (item.path === location.pathname) return item.name;
+      if (item.children) {
+        const child = item.children.find((c) => c.path === location.pathname);
+        if (child) return child.name;
+      }
+    }
+    return 'Dashboard';
+  };
 
   const SidebarInner = () => (
     <div className="flex flex-col h-full">
@@ -71,6 +90,73 @@ export default function Dashboard() {
       <nav className="flex-1 px-3 pb-3 space-y-1 overflow-y-auto">
         {menuItems.map((item) => {
           const Icon = item.icon;
+
+          // ── Items with children (dropdown) ──
+          if (item.children) {
+            const hasActiveChild = item.children.some((c) => c.path === location.pathname);
+            const isExpanded = expandedMenus[item.name] ?? hasActiveChild;
+
+            return (
+              <div key={item.name}>
+                <button
+                  onClick={() => {
+                    if (collapsed) {
+                      // When collapsed, jump straight to the first child
+                      navigate(item.children[0].path);
+                      setMobileOpen(false);
+                    } else {
+                      setExpandedMenus((prev) => ({ ...prev, [item.name]: !isExpanded }));
+                    }
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
+                    hasActiveChild
+                      ? 'bg-white/10 text-[#FFF3D9] font-medium'
+                      : 'text-[#FFF3D9]/70 hover:bg-white/10 hover:text-white'
+                  }`}
+                  title={collapsed ? item.name : undefined}
+                >
+                  <Icon className="w-5 h-5 shrink-0" />
+                  {!collapsed && (
+                    <>
+                      <span className="text-sm flex-1 text-left">{item.name}</span>
+                      <ChevronDown
+                        className="w-4 h-4 shrink-0 transition-transform duration-200"
+                        style={{ transform: isExpanded ? 'rotate(180deg)' : 'none' }}
+                      />
+                    </>
+                  )}
+                </button>
+
+                {!collapsed && isExpanded && (
+                  <div className="mt-1 space-y-1">
+                    {item.children.map((child) => {
+                      const ChildIcon = child.icon;
+                      const isChildActive = location.pathname === child.path;
+                      return (
+                        <button
+                          key={child.name}
+                          onClick={() => {
+                            navigate(child.path);
+                            setMobileOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 pl-10 pr-3 py-2.5 rounded-xl transition-all text-left ${
+                            isChildActive
+                              ? 'bg-[#FFF3D9] text-[#4F5F52] font-medium shadow-sm'
+                              : 'text-[#FFF3D9]/70 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <ChildIcon className="w-4 h-4 shrink-0" />
+                          <span className="text-sm">{child.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // ── Regular single items ──
           const isActive = location.pathname === item.path;
           return (
             <button
@@ -149,14 +235,12 @@ export default function Dashboard() {
         {/* Topbar */}
         <header className="bg-[#FFF3D9] border-b border-[#A6A29A]/20 px-5 py-3 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            {/* Desktop collapse */}
             <button
               onClick={() => setCollapsed(!collapsed)}
               className="hidden lg:flex p-2 rounded-lg text-[#4F5F52] hover:bg-[#4F5F52]/10 transition-colors"
             >
               <Menu className="w-5 h-5" />
             </button>
-            {/* Mobile open */}
             <button
               onClick={() => setMobileOpen(true)}
               className="lg:hidden p-2 rounded-lg text-[#4F5F52] hover:bg-[#4F5F52]/10"
@@ -165,7 +249,7 @@ export default function Dashboard() {
             </button>
             <div>
               <h2 className="font-semibold text-[#4F5F52] capitalize">
-                {menuItems.find((item) => item.path === location.pathname)?.name || 'Dashboard'}
+                {getPageTitle()}
               </h2>
               <p className="text-xs text-[#A6A29A]">{today}</p>
             </div>
@@ -188,7 +272,6 @@ export default function Dashboard() {
         </main>
       </div>
 
-      {/* Keyframes for animations */}
       <style>{`
         @keyframes slideIn { from { transform: translateX(-100%); } to { transform: none; } }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }

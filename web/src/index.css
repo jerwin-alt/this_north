@@ -1,1 +1,35 @@
 @import "tailwindcss";
+
+
+/* ═══════════════════════════════════════════════════════════════
+   GLOBAL — Hide scrollbars everywhere but keep scrolling functional.
+   Covers: page-level scroll, sidebar nav, Reports, Lost & Damages,
+   tables, modals, dropdown overflow, and any other scroll container.
+   Works across Chrome, Edge, Safari, and Firefox.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Firefox + legacy Edge */
+html,
+body,
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* Chrome / Edge / Safari / Chromium */
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+  background: transparent;
+}
+
+/* Also cover the pseudo-elements some browsers render separately */
+*::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  display: none;
+  background: transparent;
+}

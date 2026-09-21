@@ -1,10 +1,10 @@
 // web/src/pages/Ingredients.jsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from '/api/axios';
 import {
   Plus, Edit2, Trash2, X, Package, AlertCircle,
-  Loader, Box, ArrowUpCircle
+  Loader, Box, ArrowUpCircle, CheckCircle2,
 } from 'lucide-react';
 
 const SAGE = '#4F5F52';
@@ -16,6 +16,23 @@ export default function Ingredients() {
   const [ingredients, setIngredients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // ── Toast (auto-dismissing notification) ──
+  const [toast, setToast] = useState({ show: false, type: 'success', message: '' });
+
+  useEffect(() => {
+    if (!toast.show) return;
+    const timer = setTimeout(() => setToast((t) => ({ ...t, show: false })), 2800);
+    return () => clearTimeout(timer);
+  }, [toast.show]);
+
+  const showToast = useCallback((message, type = 'success') => {
+    setToast({ show: true, type, message });
+  }, []);
+
+  // ── Delete confirmation modal ──
+  const [deleteConfirm, setDeleteConfirm] = useState({ show: false, ingredient: null });
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // ── Add/Edit Modal state ──
   const [showModal, setShowModal] = useState(false);
@@ -125,8 +142,10 @@ export default function Ingredients() {
     try {
       if (editMode && editingIngredient) {
         await axios.put(`/ingredients/${editingIngredient.id}`, formData);
+        showToast('Ingredient updated successfully.', 'success');
       } else {
         await axios.post('/ingredients', formData);
+        showToast('Ingredient created successfully.', 'success');
       }
       await fetchIngredients();
       setShowModal(false);
@@ -146,14 +165,27 @@ export default function Ingredients() {
     }
   };
 
-  const deleteIngredient = async (id, name) => {
-    if (!window.confirm(`Delete ingredient "${name}"? This will fail if it's used in any product recipe.`)) return;
+  // ── Delete Handlers (modal flow) ──
+  const deleteIngredient = (id, name) => {
+    const ingredient = ingredients.find((i) => i.id === id);
+    if (!ingredient) return;
+    setDeleteConfirm({ show: true, ingredient });
+  };
+
+  const confirmDeleteIngredient = async () => {
+    const ingredient = deleteConfirm.ingredient;
+    if (!ingredient) return;
+    setDeleteLoading(true);
     try {
-      await axios.delete(`/ingredients/${id}`);
+      await axios.delete(`/ingredients/${ingredient.id}`);
       await fetchIngredients();
+      setDeleteConfirm({ show: false, ingredient: null });
+      showToast('Ingredient deleted successfully.', 'success');
     } catch (err) {
       const msg = err.response?.data?.message || 'Delete failed';
-      alert(msg);
+      showToast(msg, 'error');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -189,6 +221,7 @@ export default function Ingredients() {
       await fetchIngredients();
       setShowStockModal(false);
       setStockIngredient(null);
+      showToast('Stock adjusted successfully.', 'success');
     } catch (err) {
       const msg = err.response?.data?.message || 'Stock adjustment failed';
       setStockError(msg);
@@ -230,6 +263,8 @@ export default function Ingredients() {
         .anim-up-delay { animation: fadeInUp 0.4s 0.08s cubic-bezier(0.25,0.46,0.45,0.94) both; }
         @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(12px); } to { opacity: 1; transform: none; } }
         .anim-modal { animation: modalIn 0.25s cubic-bezier(0.25,0.46,0.45,0.94); }
+        @keyframes toastIn { from { opacity: 0; transform: translate(-50%, -20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        .toast-anim { animation: toastIn 0.3s cubic-bezier(0.25,0.46,0.45,0.94) both; }
         .divider-line { height: 1px; background: linear-gradient(90deg, transparent, rgba(79,95,82,0.15), transparent); }
         .table-row-hover { transition: background 0.15s ease; }
         .table-row-hover:hover { background: rgba(242,237,228,0.65) !important; }
@@ -580,7 +615,7 @@ export default function Ingredients() {
         </div>
       )}
 
-      {/* ══ Adjust Stock Modal (unchanged) ══ */}
+      {/* ══ Adjust Stock Modal ══ */}
       {showStockModal && stockIngredient && (
         <div style={{
           position: 'fixed', inset: 0,
@@ -673,6 +708,103 @@ export default function Ingredients() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* ══ Delete Confirmation Modal ══ */}
+      {deleteConfirm.show && deleteConfirm.ingredient && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(30,35,30,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 60, padding: 16, backdropFilter: 'blur(4px)',
+        }}>
+          <div className="anim-modal" style={{
+            background: '#fff',
+            borderRadius: 22,
+            padding: '32px 28px',
+            maxWidth: 420, width: '100%',
+            textAlign: 'center',
+            boxShadow: '0 24px 60px rgba(79,95,82,0.18), 0 4px 16px rgba(0,0,0,0.08)',
+            border: '1px solid rgba(242,237,228,0.8)',
+          }}>
+            <div style={{
+              width: 60, height: 60,
+              background: 'rgba(239,68,68,0.08)',
+              borderRadius: 18,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 18px',
+              border: '1.5px solid rgba(239,68,68,0.15)',
+            }}>
+              <Trash2 size={26} style={{ color: '#EF4444' }} />
+            </div>
+            <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.1rem', marginBottom: 8 }}>
+              Delete Ingredient?
+            </h3>
+            <p style={{ color: MUTED_GRAY, fontSize: '0.83rem', lineHeight: 1.6, marginBottom: 24 }}>
+              This will permanently delete <strong style={{ color: SAGE }}>{deleteConfirm.ingredient.name}</strong> from inventory.
+              This action cannot be undone, and it will fail if the ingredient is used in any product recipe.
+            </p>
+            <div className="divider-line mb-6" />
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button
+                onClick={() => setDeleteConfirm({ show: false, ingredient: null })}
+                className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium"
+                style={{ borderColor: 'rgba(166,162,154,0.3)', color: MUTED_GRAY, background: 'transparent' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteIngredient}
+                disabled={deleteLoading}
+                className="primary-btn flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-60"
+                style={{
+                  background: 'linear-gradient(135deg, #EF4444, #DC2626)',
+                  boxShadow: '0 4px 14px rgba(239,68,68,0.3)',
+                }}
+              >
+                {deleteLoading ? <Loader size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {deleteLoading ? 'Deleting…' : 'Yes, delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Toast (auto-dismissing notification) ══ */}
+      {toast.show && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="toast-anim"
+          style={{
+            position: 'fixed',
+            top: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '12px 20px',
+            borderRadius: 14,
+            background: toast.type === 'error' ? '#FEF2F2' : '#ECFDF5',
+            color: toast.type === 'error' ? '#DC2626' : '#059669',
+            border: `1px solid ${toast.type === 'error' ? '#FEE2E2' : '#D1FAE5'}`,
+            boxShadow: '0 12px 32px rgba(79,95,82,0.18)',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            letterSpacing: '0.01em',
+            pointerEvents: 'none',
+            maxWidth: '90vw',
+          }}
+        >
+          {toast.type === 'error' ? (
+            <AlertCircle size={18} />
+          ) : (
+            <CheckCircle2 size={18} />
+          )}
+          <span>{toast.message}</span>
         </div>
       )}
     </div>

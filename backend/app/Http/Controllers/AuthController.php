@@ -98,7 +98,9 @@ class AuthController extends Controller
                 'email'       => $user->email,
                 'phone'       => $user->phone,
                 'role'        => $user->role,
-                'signature_stamps' => $user->signature_stamps,  // add this line
+                'signature_stamps' => $user->signature_stamps,
+                // Include image if needed (optional)
+                'image'       => $user->image,
             ],
             'message' => 'Login Successful',
         ], 200);

@@ -21,12 +21,13 @@ class CustomerPaymentController extends Controller
             'order_id'          => 'required|exists:orders,id',
             'payment_method'    => ['required', Rule::in(['cash', 'gcash'])],
             'amount_paid'       => 'required|numeric|min:0.01',
-            'reference_number'  => 'nullable|string|max:100',
+            'reference_number'  => 'nullable|string|max:100|regex:/^[0-9]+$/',
+            'proof_image'       => 'nullable|image|mimes:jpeg,png,jpg|max:5120', // 5MB
         ]);
 
         $order = Order::with('payments')->findOrFail($validated['order_id']);
 
-        // 🔒 NEW: Only allow payment if order is NOT pending or cancelled
+        // 🔒 Only allow payment if order is NOT pending or cancelled
         if (in_array($order->status, ['pending', 'cancelled'])) {
             return response()->json([
                 'message' => 'Payment is not allowed for pending or cancelled orders. Please wait for admin approval.'
@@ -44,8 +45,13 @@ class CustomerPaymentController extends Controller
         // Check if overpayment (but allow if remaining balance is >0)
         $changeAmount = 0;
         if ($validated['amount_paid'] > $remainingBalance && $remainingBalance > 0) {
-            // Overpayment – will be handled as change
             $changeAmount = $validated['amount_paid'] - $remainingBalance;
+        }
+
+        // Handle proof image upload
+        $imagePath = null;
+        if ($request->hasFile('proof_image')) {
+            $imagePath = $request->file('proof_image')->store('payment_proofs', 'public');
         }
 
         DB::beginTransaction();
@@ -55,7 +61,6 @@ class CustomerPaymentController extends Controller
 
             if ($newPaid >= $order->total_amount) {
                 $paymentStatus = 'paid';
-                // If overpaid, change is already computed
                 if ($newPaid > $order->total_amount) {
                     $changeAmount = $newPaid - $order->total_amount;
                 }
@@ -66,16 +71,17 @@ class CustomerPaymentController extends Controller
             // Create payment record
             $payment = Payment::create([
                 'order_id'         => $order->id,
-                'payment_type'     => 'full', // customers always pay full or down? but we have payment_option from frontend – we can ignore for now
+                'payment_type'     => 'full',
                 'payment_method'   => $validated['payment_method'],
                 'amount_paid'      => $validated['amount_paid'],
-                'discount_amount'  => 0, // no discount applied at payment level yet
+                'discount_amount'  => 0,
                 'final_amount'     => $validated['amount_paid'],
                 'change_amount'    => $changeAmount,
                 'payment_date'     => now(),
                 'reference_number' => $validated['reference_number'] ?? null,
+                'proof_image'      => $imagePath,
                 'payment_status'   => 'completed',
-                'processed_by'     => auth()->id(), // customer is the one paying
+                'processed_by'     => auth()->id(),
             ]);
 
             // Update order payment status
@@ -84,7 +90,7 @@ class CustomerPaymentController extends Controller
             // Log activity
             UserActivityLog::create([
                 'user_id'       => auth()->id(),
-                'activity_type' => 'discount_applied', // using generic; could add 'payment_made'
+                'activity_type' => 'discount_applied',
                 'reference_id'  => $payment->id,
                 'details'       => "Payment of ₱{$validated['amount_paid']} received for order {$order->order_number}",
             ]);
@@ -97,6 +103,7 @@ class CustomerPaymentController extends Controller
                 'order_payment_status'  => $paymentStatus,
                 'change'                => $changeAmount,
             ], 201);
+
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([

@@ -29,4 +29,10 @@ class UserActivityLog extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+        // ✅ Force UTC ISO-8601 with 'Z' for all date attributes
+    protected function serializeDate(\DateTimeInterface $date)
+    {
+        return $date->toIso8601ZuluString();
+    }
 }

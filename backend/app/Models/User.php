@@ -29,10 +29,12 @@ class User extends Authenticatable
         'verification_type',
         'verification_status',
         'id_number',
+        'image',
         'expires_at',
         'is_active',
         'is_walk_in_customer',
-        'signature_stamps'
+        'signature_stamps',
+        'loyalty_completed',
     ];
 
     /**
@@ -54,4 +56,22 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
+
+
+    // In App\Models\User
+
+    public function loyaltySignatureLogs()
+    {
+        return $this->hasMany(LoyaltySignatureLog::class);
+    }
+
+    public function loyaltyRewards()
+    {
+        return $this->hasMany(LoyaltyReward::class);
+    }
+
+    public function getTotalStampsAttribute()
+    {
+        return $this->loyaltySignatureLogs()->count();
+    }
 }

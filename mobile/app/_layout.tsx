@@ -12,6 +12,7 @@ export default function RootLayout() {
           <Stack.Screen name="register" />
           <Stack.Screen name="carmera" />
           <Stack.Screen name="customer/customerDashboard" />
+          <Stack.Screen name="customer/cakeCustomization" options={{ headerShown: false }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -12,6 +12,7 @@ use App\Models\DrinkSize;
 use App\Models\BillOfMaterials;
 use App\Models\Ingredient;
 use App\Models\UserActivityLog;
+use Carbon\Carbon;
 
 class AdminMenuController extends Controller
 {
@@ -23,10 +24,8 @@ class AdminMenuController extends Controller
     {
         $words = preg_split('/\s+/', trim($categoryName));
         if (count($words) === 1) {
-            // Single word → first two letters
             return strtoupper(substr($words[0], 0, 2));
         } else {
-            // Multiple words → initials, but limit to 2 characters
             $initials = '';
             foreach ($words as $word) {
                 if ($word !== '') {
@@ -36,7 +35,6 @@ class AdminMenuController extends Controller
                     }
                 }
             }
-            // Fallback: if only one initial (highly unlikely), use first two letters of first word
             return strtoupper(str_pad($initials, 2, substr($words[0], 1, 1)));
         }
     }
@@ -46,23 +44,27 @@ class AdminMenuController extends Controller
      */
     public function adminAddMenu(Request $request)
     {
-        $validated = $request->validate([
+        // Decode sizes early
+        $sizes = $request->filled('drink_sizes') ? json_decode($request->drink_sizes, true) : [];
+        $hasSizes = !empty($sizes);
+
+        // Conditional validation: base_price is required only if NO sizes
+        $rules = [
             'category_id'          => 'required|exists:categories,id,is_active,1',
             'name'                 => 'required|string|max:150',
             'description'          => 'nullable|string',
-            'base_price'           => 'required|numeric|min:0',
+            'base_price'           => $hasSizes ? 'nullable|numeric|min:0' : 'required|numeric|min:0',
             'menu_type'            => 'required|in:standard,customizable',
-            'has_size_options'     => 'boolean',
-            'is_active'            => 'boolean',
-            'stock_quantity'       => 'required_if:track_stock,true|nullable|integer|min:0',
+            'stock_quantity'       => 'nullable|integer|min:0',
             'is_ready_made'        => 'boolean',
-            'track_stock'          => 'boolean',
             'expiration_date'      => 'nullable|date|after:today',
             'min_stock_level'      => 'nullable|integer|min:0',
             'image'                => 'required|image|mimes:jpeg,png,jpg,gif,webp,bmp,svg+xml|max:20480',
             'drink_sizes'          => 'nullable|json',
             'recipe'               => 'nullable|json',
-        ]);
+        ];
+
+        $validated = $request->validate($rules);
 
         // Handle image upload
         $imagePath = null;
@@ -93,43 +95,43 @@ class AdminMenuController extends Controller
                 : 1;
             $sku = $prefix . '-' . str_pad($nextNumber, 4, '0', STR_PAD_LEFT);
 
-            // Create the menu item
+            // Create the menu item (temporarily with base_price = 0 if sizes exist)
             $menu = Menu::create([
                 'category_id'       => $request->category_id,
                 'sku'               => $sku,
                 'name'              => $request->name,
                 'description'       => $request->description,
-                'base_price'        => $request->base_price,
+                'base_price'        => $hasSizes ? 0 : $request->base_price,
                 'menu_type'         => $request->menu_type,
-                'has_size_options'  => $request->has_size_options ?? false,
-                'is_active'         => $request->is_active ?? true,
-                'stock_quantity'    => $request->track_stock ? ($request->stock_quantity ?? 0) : null,
+                'has_size_options'  => $hasSizes,
+                'is_active'         => true,
+                'stock_quantity'    => $request->stock_quantity ?? 0,
                 'is_ready_made'     => $request->is_ready_made ?? true,
-                'track_stock'       => $request->track_stock ?? false,
-                'expiration_date'   => $request->expiration_date ?: null,
+                'track_stock'       => true,
+                'expiration_date'   => $request->expiration_date ?? null,
                 'min_stock_level'   => $request->min_stock_level ?? 0,
                 'image_url'         => url(Storage::url($imagePath)),
                 'stocked_at'        => now(),
             ]);
 
             // Process drink sizes (if any)
-            $drinkSizes = [];
-            if ($request->filled('drink_sizes')) {
-                $sizes = json_decode($request->drink_sizes, true);
-                if (is_array($sizes)) {
-                    foreach ($sizes as $size) {
-                        $drinkSizes[] = DrinkSize::create([
-                            'menu_id'        => $menu->id,
-                            'size_name'      => $size['size_name'],
-                            'price_modifier' => $size['price_modifier'] ?? 0,
-                            'is_active'      => $size['is_active'] ?? true,
-                        ]);
-                    }
+            if ($hasSizes) {
+                foreach ($sizes as $size) {
+                    DrinkSize::create([
+                        'menu_id'        => $menu->id,
+                        'size_name'      => $size['size_name'],
+                        'price_modifier' => $size['price_modifier'], // absolute price
+                        'is_active'      => true,
+                    ]);
                 }
+
+                // ✅ FIX: Set base_price to the first size's price
+                $firstSizePrice = $sizes[0]['price_modifier'];
+                $menu->base_price = $firstSizePrice;
+                $menu->save();
             }
 
             // Process Bill of Materials (recipe)
-            $bomEntries = [];
             if ($request->filled('recipe')) {
                 $recipe = json_decode($request->recipe, true);
                 if (is_array($recipe)) {
@@ -138,7 +140,7 @@ class AdminMenuController extends Controller
                         if (!$ingredient) {
                             throw new \Exception("Ingredient ID {$item['ingredient_id']} not found");
                         }
-                        $bomEntries[] = BillOfMaterials::create([
+                        BillOfMaterials::create([
                             'menu_id'           => $menu->id,
                             'ingredient_id'     => $item['ingredient_id'],
                             'quantity_needed'   => $item['quantity_needed'],
@@ -183,7 +185,6 @@ class AdminMenuController extends Controller
 
     /**
      * Return a preview of the next SKU for a given category.
-     * GET /api/admin/next-sku?category_id=...
      */
     public function getNextSku(Request $request)
     {
@@ -216,6 +217,7 @@ class AdminMenuController extends Controller
      */
     public function getAllMenu()
     {
+        // ✅ Ensure drinkSizes are loaded for admin product list
         $menu = Menu::with(['category', 'drinkSizes'])->get();
         return response()->json([
             'products' => $menu,
@@ -237,12 +239,13 @@ class AdminMenuController extends Controller
     }
 
     /**
-     * Update a menu item (SKU can optionally be updated if needed, but usually left unchanged)
+     * Update a menu item
      */
     public function updateMenu(Request $request, $id)
     {
         $menu = Menu::findOrFail($id);
 
+        // Convert boolean fields
         $booleanFields = ['has_size_options', 'is_active', 'track_stock', 'is_ready_made'];
         foreach ($booleanFields as $field) {
             if ($request->has($field)) {
@@ -250,29 +253,69 @@ class AdminMenuController extends Controller
             }
         }
 
-        $validated = $request->validate([
+        // Decode sizes early
+        $sizes = $request->filled('drink_sizes') ? json_decode($request->drink_sizes, true) : [];
+        $hasSizes = !empty($sizes);
+
+        // Conditional validation
+        $rules = [
             'category_id'      => 'required|exists:categories,id',
             'name'             => 'required|string|max:150',
             'description'      => 'nullable|string',
-            'base_price'       => 'required|numeric|min:0',
+            'base_price'       => $hasSizes ? 'nullable|numeric|min:0' : 'required|numeric|min:0',
             'menu_type'        => 'required|in:standard,customizable',
-            'has_size_options' => 'boolean',
-            'is_active'        => 'boolean',
             'stock_quantity'   => 'nullable|integer|min:0',
             'is_ready_made'    => 'boolean',
-            'track_stock'      => 'boolean',
             'expiration_date'  => 'nullable|date|after:today',
             'min_stock_level'  => 'nullable|integer|min:0',
             'sku'              => 'nullable|string|unique:menu,sku,' . $id,
             'image'            => 'nullable|image|max:20480',
-        ]);
+        ];
 
+        $validated = $request->validate($rules);
+
+        $updateData = [
+            'category_id'      => $request->category_id,
+            'name'             => $request->name,
+            'description'      => $request->description,
+            'menu_type'        => $request->menu_type,
+            'has_size_options' => $hasSizes,
+            'is_active'        => $request->is_active ?? $menu->is_active,
+            'track_stock'      => $request->track_stock ?? $menu->track_stock,
+            'stock_quantity'   => $request->stock_quantity ?? $menu->stock_quantity,
+            'is_ready_made'    => $request->is_ready_made ?? $menu->is_ready_made,
+            'expiration_date'  => $request->expiration_date ?? $menu->expiration_date,
+            'min_stock_level'  => $request->min_stock_level ?? $menu->min_stock_level,
+        ];
+
+        // Update image if provided
         if ($request->hasFile('image')) {
             $imagePath = $request->file('image')->store('uploads/menu', 'public');
-            $validated['image_url'] = Storage::url($imagePath);
+            $updateData['image_url'] = Storage::url($imagePath);
         }
 
-        $menu->update($validated);
+        // ✅ Update base_price based on sizes or provided value
+        if ($hasSizes) {
+            $firstSizePrice = $sizes[0]['price_modifier'];
+            $updateData['base_price'] = $firstSizePrice;
+        } else {
+            $updateData['base_price'] = $request->base_price;
+        }
+
+        $menu->update($updateData);
+
+        // Update sizes: delete old, insert new
+        $menu->drinkSizes()->delete();
+        if ($hasSizes) {
+            foreach ($sizes as $size) {
+                DrinkSize::create([
+                    'menu_id'        => $menu->id,
+                    'size_name'      => $size['size_name'],
+                    'price_modifier' => $size['price_modifier'],
+                    'is_active'      => true,
+                ]);
+            }
+        }
 
         return response()->json([
             'message' => 'Product updated successfully',
@@ -280,8 +323,7 @@ class AdminMenuController extends Controller
         ]);
     }
 
-
-        /**
+    /**
      * Add stock to a menu item.
      */
     public function addStock(Request $request, $id)
@@ -308,41 +350,106 @@ class AdminMenuController extends Controller
         ]);
     }
 
-
     /**
      * GET /api/admin/menu-transactions
-     * Returns menu stock transactions (stock in and stock out) parsed from activity logs.
+     * Returns paginated menu stock transactions (stock in and stock out) parsed from activity logs.
      */
     public function getMenuTransactions(Request $request)
     {
-        // Fetch all inventory_updated logs that are either stock additions or deductions
-        $logs = UserActivityLog::where('activity_type', 'inventory_updated')
+        $perPage   = max(1, min(10000, (int) $request->input('per_page', 20)));
+        $type      = $request->input('type', 'all');           // all | stock_in | stock_out | sold
+        $search    = trim((string) $request->input('search', ''));
+        $categoryId= $request->input('category_id');
+        $year      = $request->input('year');
+        $month     = $request->input('month');
+        $weekStart = $request->input('week_start');
+        $dayOffset = $request->input('day_offset');            // 0=Mon … 6=Sun, null=whole week
+
+        $cashierId = $request->input('cashier_id');
+
+        // Resolve search → product OR category
+        $matchedProduct  = null;
+        $matchedCategory = null;
+
+        if ($search !== '') {
+            $matchedProduct = Menu::where('name', 'like', "%{$search}%")->first();
+            if (!$matchedProduct) {
+                $matchedCategory = Category::where('name', 'like', "%{$search}%")->first();
+            }
+        }
+
+        $query = UserActivityLog::where('activity_type', 'inventory_updated')
             ->where(function ($q) {
                 $q->where('details', 'like', 'Added stock%')
                 ->orWhere('details', 'like', 'Deducted stock%');
-            })
-            ->orderBy('created_at', 'desc')
-            ->get();
+            });
 
-        $transactions = [];
+        // Type filter
+        if ($type === 'stock_in') {
+            $query->where('details', 'like', 'Added stock%');
+        } elseif ($type === 'stock_out' || $type === 'sold') {
+            $query->where('details', 'like', 'Deducted stock%');
+        }
 
-        foreach ($logs as $log) {
-            // --- Parse Stock In (admin add stock) ---
-            if (preg_match('/Added stock to (.+): \+(\d+)/', $log->details, $matches)) {
-                $productName = trim($matches[1]);
+        $query->join('menu', 'user_activity_logs.reference_id', '=', 'menu.id')
+            ->select('user_activity_logs.*');
+
+
+        // Search → menu id or menu.category_id
+        if ($matchedProduct) {
+            $query->where('menu.id', $matchedProduct->id);
+        } elseif ($matchedCategory) {
+            $query->where('menu.category_id', $matchedCategory->id);
+        } elseif ($categoryId) {
+            $query->where('menu.category_id', $categoryId);
+        }
+
+        // Date filters
+        if ($year) {
+            $query->whereYear('user_activity_logs.created_at', (int) $year);
+        }
+        if ($month) {
+            $query->whereMonth('user_activity_logs.created_at', (int) $month);
+        }
+        if ($weekStart) {
+            $start = Carbon::parse($weekStart)->startOfWeek(Carbon::MONDAY);
+            if ($dayOffset !== null && $dayOffset !== '') {
+                $start = $start->copy()->addDays((int) $dayOffset)->startOfDay();
+                $end   = $start->copy()->endOfDay();
+            } else {
+                $end = $start->copy()->endOfWeek(Carbon::SUNDAY);
+            }
+            $query->whereBetween('user_activity_logs.created_at', [
+                $start->toDateTimeString(),
+                $end->toDateTimeString(),
+            ]);
+        }
+
+        // Legacy start_date/end_date (kept for backward compatibility)
+        if ($request->filled('start_date')) {
+            $query->where('user_activity_logs.created_at', '>=', $request->start_date);
+        }
+        if ($request->filled('end_date')) {
+            $query->where('user_activity_logs.created_at', '<=', $request->end_date . ' 23:59:59');
+        }
+
+        if ($cashierId) {
+            $query->where('user_activity_logs.user_id', (int) $cashierId);
+        }
+
+
+        $logs = $query->orderBy('user_activity_logs.created_at', 'desc')->paginate($perPage);
+
+        $transactions = $logs->map(function ($log) {
+            $details = $log->details;
+            $menu = Menu::find($log->reference_id);
+            if (!$menu) return null;
+
+            if (preg_match('/Added stock to (.+): \+(\d+)/', $details, $matches)) {
                 $quantity = (int) $matches[2];
-
-                // Try to find menu by reference_id first, then by name
-                $menu = Menu::find($log->reference_id);
-                if (!$menu) {
-                    $menu = Menu::where('name', $productName)->first();
-                }
-                if (!$menu) continue;
-
                 $currentStock = $menu->stock_quantity ?? 0;
                 $pastStock = $currentStock - $quantity;
-
-                $transactions[] = [
+                return [
                     'sku'           => $menu->sku,
                     'product_name'  => $menu->name,
                     'type'          => 'Stock In',
@@ -352,21 +459,11 @@ class AdminMenuController extends Controller
                     'qty_sold'      => 0,
                     'created_at'    => $log->created_at->toDateTimeString(),
                 ];
-            }
-            // --- Parse Stock Out (order completion) ---
-            elseif (preg_match('/Deducted stock for (.+): -(\d+) \(was (\d+), now (\d+)\)/', $log->details, $matches)) {
-                $productName = trim($matches[1]);
-                $quantity = (int) $matches[2];
+            } elseif (preg_match('/Deducted stock for (.+): -(\d+) \(was (\d+), now (\d+)\)/', $details, $matches)) {
+                $quantity  = (int) $matches[2];
                 $pastStock = (int) $matches[3];
-                $newStock = (int) $matches[4];
-
-                $menu = Menu::find($log->reference_id);
-                if (!$menu) {
-                    $menu = Menu::where('name', $productName)->first();
-                }
-                if (!$menu) continue;
-
-                $transactions[] = [
+                $newStock  = (int) $matches[4];
+                return [
                     'sku'           => $menu->sku,
                     'product_name'  => $menu->name,
                     'type'          => 'Stock Out',
@@ -377,30 +474,11 @@ class AdminMenuController extends Controller
                     'created_at'    => $log->created_at->toDateTimeString(),
                 ];
             }
-        }
+            return null;
+        })->filter();
 
-        // Apply date filters if provided
-        if ($request->filled('start_date')) {
-            $transactions = array_filter($transactions, function ($tx) use ($request) {
-                return $tx['created_at'] >= $request->start_date;
-            });
-        }
-        if ($request->filled('end_date')) {
-            $transactions = array_filter($transactions, function ($tx) use ($request) {
-                return $tx['created_at'] <= $request->end_date . ' 23:59:59';
-            });
-        }
+        $paginated = $logs->setCollection($transactions);
 
-        // Apply category filter if provided
-        if ($request->filled('category_id')) {
-            $categoryId = $request->category_id;
-            $transactions = array_filter($transactions, function ($tx) use ($categoryId) {
-                $menu = Menu::where('sku', $tx['sku'])->first();
-                return $menu && $menu->category_id == $categoryId;
-            });
-        }
-
-        // Re-index after filtering
-        return response()->json(['transactions' => array_values($transactions)]);
+        return response()->json(['transactions' => $paginated]);
     }
 }

@@ -2,19 +2,12 @@ import axiosClient from "axios";
 import { getToken } from "@/services/auth-storage";
 
 const axios = axiosClient.create({
-  baseURL: "http://10.130.48.170:8000/api",
+  baseURL: "http://10.80.66.170:8000/api",
   headers: {
     Accept: "application/json",
   },
 });
 
-// axios.interceptors.request.use(async (req) => {
-//   const token = await getToken();
-//   if (token) {
-//     req.headers.Authorization = `Bearer ${token}`;
-//   }
-//   return req;
-// });
 axios.interceptors.request.use(async (req) => {
   const token = await getToken();
   if (token) {

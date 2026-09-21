@@ -23,6 +23,7 @@ class OrderItem extends Model
         'subtotal',
         'total_price',
         'is_free_item',
+        'discount_amount',
     ];
 
     protected $casts = [
@@ -30,6 +31,7 @@ class OrderItem extends Model
         'unit_price'   => 'decimal:2',
         'subtotal'     => 'decimal:2',
         'total_price'  => 'decimal:2',
+        'discount_amount' => 'decimal:2',
     ];
 
     public function order()

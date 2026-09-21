@@ -5,10 +5,10 @@ import {
   LayoutDashboard, Package, ShoppingBag, Calendar, Percent,
   BarChart3, LogOut, Cake, Menu, Utensils
 } from 'lucide-react';
-
+  
 const menuItems = [
-  { name: 'Overview', icon: LayoutDashboard, path: '/pages/staff-dashboard' },
-  { name: 'Menu', icon: Utensils, path: '/pages/staff-dashboard/menu' },
+  { name: 'Menu', icon: Utensils, path: '/pages/staff-dashboard' },
+  { name: 'Overview', icon: LayoutDashboard, path: '/pages/staff-dashboard/overview' },
   { name: 'Orders', icon: ShoppingBag, path: '/pages/staff-dashboard/orders' },
   { name: 'Discounts', icon: Percent, path: '/pages/staff-dashboard/discounts' },
   { name: 'Schedule', icon: Calendar, path: '/pages/staff-dashboard/schedule' },

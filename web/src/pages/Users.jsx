@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users as UsersIcon, Loader, AlertCircle, Plus, X, Shield, User, Edit2,
-  Trash2, Eye, EyeOff
+  Trash2, Eye, EyeOff, CheckCircle2,
 } from 'lucide-react';
 import axios from '/api/axios';
 
@@ -16,6 +16,19 @@ export default function Users() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showInactive, setShowInactive] = useState(true);
+
+  // ── Toast (auto-dismissing notification) ──
+  const [toast, setToast] = useState({ show: false, type: 'success', message: '' });
+
+  useEffect(() => {
+    if (!toast.show) return;
+    const timer = setTimeout(() => setToast((t) => ({ ...t, show: false })), 2800);
+    return () => clearTimeout(timer);
+  }, [toast.show]);
+
+  const showToast = useCallback((message, type = 'success') => {
+    setToast({ show: true, type, message });
+  }, []);
 
   // Modal state (add/edit)
   const [showModal, setShowModal] = useState(false);
@@ -70,9 +83,13 @@ export default function Users() {
     try {
       await axios.patch(`/admin/users/${id}/toggle-status`, { is_active: !currentStatus });
       await fetchAllUsers();
+      showToast(
+        !currentStatus ? 'User activated successfully.' : 'User deactivated successfully.',
+        'success'
+      );
     } catch (err) {
       console.error('Toggle status error:', err);
-      alert('Failed to update user status');
+      showToast('Failed to update user status', 'error');
     }
   };
 
@@ -82,9 +99,10 @@ export default function Users() {
       await axios.delete(`/admin/users/${user.id}`);
       setDeleteConfirm({ show: false, user: null });
       await fetchAllUsers();
+      showToast('User deactivated successfully.', 'success');
     } catch (err) {
       console.error('Delete error:', err);
-      alert(err.response?.data?.message || 'Failed to delete user');
+      showToast(err.response?.data?.message || 'Failed to delete user', 'error');
     }
   };
 
@@ -167,9 +185,11 @@ export default function Users() {
       if (editMode && editingUser) {
         await axios.put(`/admin/users/${editingUser.id}`, payload);
         setFormSuccess('User updated successfully!');
+        showToast('User updated successfully.', 'success');
       } else {
         await axios.post('/admin/users', payload);
         setFormSuccess('User added successfully!');
+        showToast('User added successfully.', 'success');
       }
       resetForm();
       await fetchAllUsers();
@@ -256,6 +276,8 @@ export default function Users() {
         .anim-up-delay { animation: fadeInUp 0.4s 0.08s cubic-bezier(0.25,0.46,0.45,0.94) both; }
         @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(12px); } to { opacity: 1; transform: none; } }
         .anim-modal { animation: modalIn 0.25s cubic-bezier(0.25,0.46,0.45,0.94); }
+        @keyframes toastIn { from { opacity: 0; transform: translate(-50%, -20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        .toast-anim { animation: toastIn 0.3s cubic-bezier(0.25,0.46,0.45,0.94) both; }
         .divider-line { height: 1px; background: linear-gradient(90deg, transparent, rgba(79,95,82,0.15), transparent); }
         .table-row-hover { transition: background 0.15s ease; }
         .table-row-hover:hover { background: rgba(242,237,228,0.65) !important; }
@@ -817,6 +839,43 @@ export default function Users() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ══ Toast (auto-dismissing notification) ══ */}
+      {toast.show && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="toast-anim"
+          style={{
+            position: 'fixed',
+            top: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '12px 20px',
+            borderRadius: 14,
+            background: toast.type === 'error' ? '#FEF2F2' : '#ECFDF5',
+            color: toast.type === 'error' ? '#DC2626' : '#059669',
+            border: `1px solid ${toast.type === 'error' ? '#FEE2E2' : '#D1FAE5'}`,
+            boxShadow: '0 12px 32px rgba(79,95,82,0.18)',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            letterSpacing: '0.01em',
+            pointerEvents: 'none',
+            maxWidth: '90vw',
+          }}
+        >
+          {toast.type === 'error' ? (
+            <AlertCircle size={18} />
+          ) : (
+            <CheckCircle2 size={18} />
+          )}
+          <span>{toast.message}</span>
         </div>
       )}
     </div>

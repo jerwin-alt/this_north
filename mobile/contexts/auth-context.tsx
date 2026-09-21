@@ -87,10 +87,19 @@ export const useAuth = create<AuthState>((set, get) => ({
         const echo = await initEcho();
         if (echo) {
           const channel = echo.private(`private-customer.${user.id}`);
+
+          // ─── LISTEN FOR ORDER STATUS UPDATES ──────────────────────────
+          // This callback runs whenever an event is broadcast to this customer's channel.
           channel.listen('.order.status.updated', (event: OrderStatusEvent) => {
-            // Add notification to the store – this will trigger the toast
+            // ─── DEBUG LOG ──────────────────────────────────────────────
+            // This log confirms the event was received over WebSocket.
+            console.log('🔔 Event received from Reverb:', event);
+            // ──────────────────────────────────────────────────────────────
+
+            // Add notification to the store – this will trigger the toast and update the Alerts tab
             useNotificationStore.getState().addNotification(event);
           });
+
           console.log(`✅ Subscribed to private-customer.${user.id}`);
         }
       }

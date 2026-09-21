@@ -1,10 +1,10 @@
 // web/src/pages/StaffMenu.jsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from '/api/axios';
 import {
   Loader, AlertCircle, ShoppingBag, Plus, Minus, Trash2,
-  X, Check, Coffee, Sparkles, Sandwich, Cookie, Cake
+  X, Check, Coffee, Sparkles, Sandwich, Cookie, Cake, Percent
 } from 'lucide-react';
 import { useAuth } from '../contexts/auth-context';
 
@@ -27,7 +27,7 @@ const categoryIcons = {
 const getImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http')) return path;
-  const base = axios.defaults.baseURL?.replace('/api', '') || 'http://10.130.48.170:8000';
+  const base = axios.defaults.baseURL?.replace('/api', '') || 'http://10.80.66.170:8000';
   return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
 };
 
@@ -41,9 +41,9 @@ function ProductImage({ imageUrl, name }) {
         width: '100%', height: '100%',
         background: CREAM,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        borderRadius: 12,
+        borderRadius: 8,
       }}>
-        <ShoppingBag size={28} style={{ color: MUTED_GRAY, opacity: 0.3 }} />
+        <ShoppingBag size={20} style={{ color: MUTED_GRAY, opacity: 0.3 }} />
       </div>
     );
   }
@@ -51,7 +51,7 @@ function ProductImage({ imageUrl, name }) {
     <img
       src={url}
       alt={name}
-      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}
+      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }}
       onError={() => setError(true)}
     />
   );
@@ -78,6 +78,13 @@ export default function StaffMenu() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [showProductModal, setShowProductModal] = useState(false);
   const [modalQuantity, setModalQuantity] = useState(1);
+
+  // Discount state
+  const [discountId, setDiscountId] = useState(null);
+  const [discountApplied, setDiscountApplied] = useState(false);
+  const [discountedItemId, setDiscountedItemId] = useState(null);
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [discountValue, setDiscountValue] = useState(0);
 
   // ── Data fetching ──
   const fetchCategories = async () => {
@@ -107,8 +114,28 @@ export default function StaffMenu() {
     }
   };
 
+  // Fetch the PWD/Senior Citizen discount
+  const fetchDiscount = async () => {
+    try {
+      const res = await axios.get('/staff/discounts');
+      const discounts = res.data.discounts || [];
+      const pwdDiscount = discounts.find(
+        d => d.requires_verification && d.discount_type === 'percentage' && Number(d.discount_value) === 30 && d.is_active
+      );
+      if (pwdDiscount) {
+        setDiscountId(pwdDiscount.id);
+        setDiscountValue(Number(pwdDiscount.discount_value));
+      } else {
+        console.warn('No PWD/Senior Citizen discount found');
+      }
+    } catch (err) {
+      console.error('Failed to fetch discounts', err);
+    }
+  };
+
   useEffect(() => {
     fetchCategories();
+    fetchDiscount();
   }, []);
 
   useEffect(() => {
@@ -130,10 +157,18 @@ export default function StaffMenu() {
       }
       return [...prev, { ...product, quantity }];
     });
+    // Auto‑clear discount if applied (to avoid inconsistencies)
+    if (discountApplied) {
+      removeDiscount();
+    }
   };
 
   const removeFromCart = (productId) => {
     setCart(prev => prev.filter(item => item.id !== productId));
+    // If the discounted item was removed, clear discount
+    if (discountApplied && discountedItemId === productId) {
+      removeDiscount();
+    }
   };
 
   const updateQuantity = (productId, delta) => {
@@ -142,16 +177,76 @@ export default function StaffMenu() {
       if (!item) return prev;
       const newQty = item.quantity + delta;
       if (newQty <= 0) {
-        return prev.filter(i => i.id !== productId);
+        const updated = prev.filter(i => i.id !== productId);
+        if (discountApplied && discountedItemId === productId) {
+          removeDiscount();
+        }
+        return updated;
       }
-      return prev.map(i =>
+      const updated = prev.map(i =>
         i.id === productId ? { ...i, quantity: newQty } : i
       );
+      // If discount applied and quantity changed, clear discount to avoid inconsistencies
+      if (discountApplied) {
+        removeDiscount();
+      }
+      return updated;
     });
   };
 
-  const cartTotal = cart.reduce((sum, item) => sum + item.base_price * item.quantity, 0);
-  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  // ── Discount functions ──
+  const applyDiscount = () => {
+    if (cart.length === 0) {
+      alert('Add at least one product to apply discount.');
+      return;
+    }
+    if (discountApplied) {
+      alert('Discount already applied.');
+      return;
+    }
+    if (!discountId) {
+      alert('No active PWD/Senior Citizen discount found.');
+      return;
+    }
+
+    // Find the item with the lowest total price (base_price * quantity)
+    let lowestItem = null;
+    let lowestTotal = Infinity;
+    cart.forEach(item => {
+      const itemTotal = item.base_price * item.quantity;
+      if (itemTotal < lowestTotal) {
+        lowestTotal = itemTotal;
+        lowestItem = item;
+      }
+    });
+
+    if (!lowestItem) {
+      alert('No items to discount.');
+      return;
+    }
+
+    const discountAmt = Math.round(lowestTotal * (discountValue / 100) * 100) / 100;
+    setDiscountedItemId(lowestItem.id);
+    setDiscountAmount(discountAmt);
+    setDiscountApplied(true);
+  };
+
+  const removeDiscount = () => {
+    setDiscountedItemId(null);
+    setDiscountAmount(0);
+    setDiscountApplied(false);
+  };
+
+  // ── Computed totals (including discount) ──
+  const subtotal = useMemo(() => {
+    return cart.reduce((sum, item) => sum + item.base_price * item.quantity, 0);
+  }, [cart]);
+
+  const cartTotal = useMemo(() => {
+    return subtotal - (discountApplied ? discountAmount : 0);
+  }, [subtotal, discountApplied, discountAmount]);
+
+  const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
 
   // ── Product modal handlers ──
   const openProductModal = (product) => {
@@ -201,13 +296,22 @@ export default function StaffMenu() {
         })),
       };
 
+      // Include discount data if applied
+      if (discountApplied && discountId) {
+        payload.discount_id = discountId;
+        payload.discounted_menu_id = discountedItemId;
+      }
+
       await axios.post('/staff/orders', payload);
 
-      // Success – clear cart and show success
       setCart([]);
       setCustomerName('');
       setOrderSuccess(true);
       setTimeout(() => setOrderSuccess(false), 4000);
+      // Reset discount state
+      setDiscountApplied(false);
+      setDiscountedItemId(null);
+      setDiscountAmount(0);
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to create order');
     } finally {
@@ -274,10 +378,134 @@ export default function StaffMenu() {
           top: 20px;
         }
         .cart-item {
-          display: flex; align-items: center; gap: 10px;
-          padding: 8px 0; border-bottom: 1px solid rgba(242,237,228,0.8);
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding: 12px 0;
+          border-bottom: 1px solid rgba(242,237,228,0.8);
         }
         .cart-item:last-child { border-bottom: none; }
+        .cart-item-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .cart-item-thumb {
+          width: 50px; height: 50px;
+          border-radius: 8px;
+          overflow: hidden;
+          background: ${CREAM};
+          flex-shrink: 0;
+        }
+        .cart-item-details {
+          flex: 1;
+          min-width: 0;
+        }
+        .cart-item-name {
+          font-weight: 600;
+          color: ${SAGE};
+          font-size: 0.9rem;
+          line-height: 1.3;
+        }
+        .cart-item-price {
+          font-size: 0.8rem;
+          color: ${MUTED_GRAY};
+          margin-top: 2px;
+        }
+        .cart-item-controls {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 4px;
+        }
+        .cart-item-qty-btn {
+          background: rgba(79,95,82,0.08);
+          border: none;
+          border-radius: 6px;
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        .cart-item-qty-btn:hover {
+          background: rgba(79,95,82,0.15);
+        }
+        .cart-item-qty {
+          font-weight: 700;
+          color: ${SAGE};
+          font-size: 0.9rem;
+          min-width: 24px;
+          text-align: center;
+        }
+        .cart-item-total-price {
+          font-weight: 700;
+          color: ${SAGE};
+          font-size: 1rem;
+          margin-left: auto;
+          white-space: nowrap;
+        }
+        .cart-item-remove {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #EF4444;
+          padding: 4px;
+          transition: transform 0.2s;
+        }
+        .cart-item-remove:hover {
+          transform: scale(1.1);
+        }
+        .summary-footer {
+          border-top: 1.5px solid rgba(242,237,228,0.8);
+          padding-top: 16px;
+          margin-top: 8px;
+        }
+        .summary-total-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.95rem;
+          color: ${SAGE};
+          padding: 4px 0;
+        }
+        .summary-total-label {
+          color: ${MUTED_GRAY};
+          font-weight: 500;
+        }
+        .summary-total-value {
+          font-weight: 600;
+          letter-spacing: -0.01em;
+        }
+        .summary-total-final {
+          font-size: 1.2rem;
+          font-weight: 700;
+          color: ${SAGE};
+          border-top: 1.5px solid rgba(242,237,228,0.8);
+          padding-top: 10px;
+          margin-top: 4px;
+        }
+        .summary-total-final .summary-total-label {
+          color: ${SAGE};
+          font-weight: 700;
+        }
+        .summary-total-final .summary-total-value {
+          font-weight: 800;
+          font-size: 1.3rem;
+        }
+        .category-tabs {
+          display: flex;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          gap: 8px;
+          padding-bottom: 12px;
+          margin-bottom: 16px;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .category-tabs::-webkit-scrollbar { display: none; }
         @media (max-width: 1024px) {
           .summary-sidebar { position: relative; top: 0; max-height: none; }
         }
@@ -324,11 +552,11 @@ export default function StaffMenu() {
         )}
 
         {/* Two‑column layout: products + summary */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Left: Products */}
-          <div className="lg:col-span-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left: Products (2/3) */}
+          <div className="lg:col-span-2">
             {/* Category tabs */}
-            <div style={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: 8, paddingBottom: 12, marginBottom: 16 }}>
+            <div className="category-tabs">
               {categories.map(cat => {
                 const Icon = categoryIcons[cat.name] || ShoppingBag;
                 const active = selectedCategory === cat.id;
@@ -405,10 +633,10 @@ export default function StaffMenu() {
             )}
           </div>
 
-          {/* Right: Order Summary */}
+          {/* Right: Order Summary (1/3) */}
           <div className="lg:col-span-1">
             <div className="summary-sidebar">
-              <h2 style={{ fontSize: '1rem', fontWeight: 700, color: SAGE, marginBottom: 12 }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 700, color: SAGE, marginBottom: 16 }}>
                 Order Summary
               </h2>
 
@@ -419,90 +647,198 @@ export default function StaffMenu() {
               ) : (
                 <>
                   <div style={{ maxHeight: '40vh', overflowY: 'auto', marginBottom: 12 }}>
-                    {cart.map(item => (
-                      <div key={item.id} className="cart-item">
-                        <div style={{ width: 40, height: 40, borderRadius: 8, overflow: 'hidden', background: CREAM, flexShrink: 0 }}>
-                          <ProductImage imageUrl={item.image_url} name={item.name} />
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ fontWeight: 600, color: SAGE, fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {item.name}
-                          </p>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    {cart.map(item => {
+                      const itemTotal = item.base_price * item.quantity;
+                      const isDiscounted = discountApplied && item.id === discountedItemId;
+                      const displayTotal = isDiscounted ? itemTotal - discountAmount : itemTotal;
+                      return (
+                        <div key={item.id} className="cart-item">
+                          <div className="cart-item-row">
+                            <div className="cart-item-thumb">
+                              <ProductImage imageUrl={item.image_url} name={item.name} />
+                            </div>
+                            <div className="cart-item-details">
+                              <div className="cart-item-name">{item.name}</div>
+                              <div className="cart-item-price">
+                                ₱{parseFloat(item.base_price).toLocaleString()} each
+                              </div>
+                              {isDiscounted && (
+                                <div style={{ fontSize: '0.75rem', color: '#D4A03D' }}>
+                                  <span style={{ textDecoration: 'line-through', color: MUTED_GRAY }}>
+                                    ₱{itemTotal.toLocaleString()}
+                                  </span>
+                                  {' → '}
+                                  <span style={{ fontWeight: 700, color: SAGE }}>
+                                    ₱{displayTotal.toLocaleString()}
+                                  </span>
+                                  <span style={{ color: '#16a34a', marginLeft: 4 }}>
+                                    (-₱{discountAmount.toLocaleString()})
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="cart-item-total-price">
+                              ₱{displayTotal.toLocaleString()}
+                            </div>
+                            <button
+                              onClick={() => removeFromCart(item.id)}
+                              className="cart-item-remove"
+                              title="Remove item"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <div className="cart-item-controls">
                             <button
                               onClick={() => updateQuantity(item.id, -1)}
-                              style={{ background: 'rgba(79,95,82,0.08)', border: 'none', borderRadius: 4, width: 20, height: 20, cursor: 'pointer' }}
+                              className="cart-item-qty-btn"
                             >
                               <Minus size={12} color={SAGE} />
                             </button>
-                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: SAGE, minWidth: 20, textAlign: 'center' }}>
-                              {item.quantity}
-                            </span>
+                            <span className="cart-item-qty">{item.quantity}</span>
                             <button
                               onClick={() => updateQuantity(item.id, 1)}
-                              style={{ background: 'rgba(79,95,82,0.08)', border: 'none', borderRadius: 4, width: 20, height: 20, cursor: 'pointer' }}
+                              className="cart-item-qty-btn"
                             >
                               <Plus size={12} color={SAGE} />
                             </button>
-                            <button
-                              onClick={() => removeFromCart(item.id)}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', marginLeft: 4 }}
-                            >
-                              <Trash2 size={12} color="#EF4444" />
-                            </button>
                           </div>
                         </div>
-                        <span style={{ fontSize: '0.9rem', fontWeight: 700, color: SAGE }}>
-                          ₱{parseFloat(item.base_price * item.quantity).toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
-                  <div className="divider-line" style={{ margin: '8px 0' }} />
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <span style={{ fontSize: '0.9rem', fontWeight: 600, color: MUTED_GRAY }}>Total</span>
-                    <span style={{ fontSize: '1.1rem', fontWeight: 800, color: SAGE }}>
-                      ₱{cartTotal.toLocaleString()}
-                    </span>
-                  </div>
-
+                  {/* ─── Discount Section ─── */}
                   <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 4 }}>
-                      Customer Name *
-                    </label>
-                    <input
-                      type="text"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                      placeholder="Enter customer's name"
-                      style={{
-                        width: '100%', padding: '8px 12px',
-                        borderRadius: 10, border: '1.5px solid rgba(166,162,154,0.3)',
-                        fontSize: '0.9rem', color: SAGE, background: '#fafafa',
-                        outline: 'none'
-                      }}
-                    />
+                    {discountApplied ? (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: 'rgba(212,160,61,0.1)',
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(212,160,61,0.3)'
+                      }}>
+                        <div>
+                          <span style={{ fontWeight: 600, color: SAGE }}>30% Discount Applied</span>
+                          <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#16a34a' }}>
+                            -₱{discountAmount.toLocaleString()}
+                          </span>
+                        </div>
+                        <button
+                          onClick={removeDiscount}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#EF4444',
+                            cursor: 'pointer',
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            transition: 'background 0.15s'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={applyDiscount}
+                        disabled={!discountId || cart.length === 0}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          padding: '8px 0',
+                          borderRadius: 8,
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          background: discountId && cart.length > 0 ? 'rgba(79,95,82,0.08)' : 'rgba(166,162,154,0.1)',
+                          color: discountId && cart.length > 0 ? SAGE : MUTED_GRAY,
+                          border: `1.5px solid ${discountId && cart.length > 0 ? 'rgba(79,95,82,0.2)' : 'rgba(166,162,154,0.2)'}`,
+                          cursor: discountId && cart.length > 0 ? 'pointer' : 'not-allowed',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (discountId && cart.length > 0) {
+                            e.currentTarget.style.background = 'rgba(79,95,82,0.15)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (discountId && cart.length > 0) {
+                            e.currentTarget.style.background = 'rgba(79,95,82,0.08)';
+                          }
+                        }}
+                      >
+                        <Percent size={16} />
+                        Apply Discount (30% PWD/Senior)
+                      </button>
+                    )}
                   </div>
 
-                  <button
-                    onClick={handlePlaceOrder}
-                    disabled={submitting}
-                    style={{
-                      width: '100%', padding: '12px',
-                      background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
-                      border: 'none', borderRadius: 12,
-                      color: '#fff', fontWeight: 700, fontSize: '0.95rem',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                      cursor: submitting ? 'not-allowed' : 'pointer',
-                      opacity: submitting ? 0.7 : 1,
-                      boxShadow: '0 4px 14px rgba(79,95,82,0.28)'
-                    }}
-                  >
-                    {submitting ? <Loader size={18} className="animate-spin" /> : <Check size={18} />}
-                    {submitting ? 'Placing Order...' : 'Place Walk‑in Order'}
-                  </button>
+                  <div className="summary-footer">
+                    {/* ── Subtotal ── */}
+                    <div className="summary-total-row">
+                      <span className="summary-total-label">Subtotal</span>
+                      <span className="summary-total-value">₱{subtotal.toLocaleString()}</span>
+                    </div>
+
+                    {/* ── Discount (if applied) ── */}
+                    {discountApplied && (
+                      <div className="summary-total-row" style={{ color: '#16a34a' }}>
+                        <span className="summary-total-label">Discount (30%)</span>
+                        <span className="summary-total-value">-₱{discountAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    {/* ── Total (final) ── */}
+                    <div className="summary-total-row summary-total-final">
+                      <span className="summary-total-label">Total</span>
+                      <span className="summary-total-value">₱{cartTotal.toLocaleString()}</span>
+                    </div>
+
+                    <div style={{ marginTop: 12 }}>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 4 }}>
+                        Customer Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        placeholder="Enter customer's name"
+                        style={{
+                          width: '100%', padding: '8px 12px',
+                          borderRadius: 10, border: '1.5px solid rgba(166,162,154,0.3)',
+                          fontSize: '0.9rem', color: SAGE, background: '#fafafa',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      onClick={handlePlaceOrder}
+                      disabled={submitting}
+                      style={{
+                        width: '100%', padding: '12px',
+                        background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                        border: 'none', borderRadius: 12,
+                        color: '#fff', fontWeight: 700, fontSize: '0.95rem',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                        cursor: submitting ? 'not-allowed' : 'pointer',
+                        opacity: submitting ? 0.7 : 1,
+                        boxShadow: '0 4px 14px rgba(79,95,82,0.28)'
+                      }}
+                    >
+                      {submitting ? <Loader size={18} className="animate-spin" /> : <Check size={18} />}
+                      {submitting ? 'Placing Order...' : 'Place Walk‑in Order'}
+                    </button>
+                  </div>
                 </>
               )}
             </div>

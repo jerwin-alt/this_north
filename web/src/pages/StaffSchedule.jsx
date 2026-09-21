@@ -6,10 +6,127 @@ import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock,
   Loader, AlertCircle, X
 } from 'lucide-react';
+import { useLocation } from 'react-router-dom';   // add
+import SvgDecorationWeb from '../components/SvgDecorationWeb';
+import strawberryImage from '../assets/CUSTOMIZE_CAKE5.jpg';
+
 
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
 const MUTED_GRAY = '#A6A29A';
+
+
+
+const API_BASE_URL = axios.defaults.baseURL?.replace('/api', '') || 'http://10.80.66.170:8000';
+
+const getFullImageUrl = (path) => {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_BASE_URL}${normalizedPath}`;
+};
+
+function getFallbackUrl(elementName) {
+  const key = elementName?.toLowerCase().replace(/\s/g, '') || '';
+  if (key === 'strawberry') return strawberryImage;
+  const map = {
+    cherry: 'https://cdn-icons-png.flaticon.com/512/744/744530.png',
+    blueberry: 'https://cdn-icons-png.flaticon.com/512/744/744531.png',
+    chocolate: 'https://cdn-icons-png.flaticon.com/512/744/744532.png',
+    sprinkles: 'https://cdn-icons-png.flaticon.com/512/744/744533.png',
+    flower: 'https://cdn-icons-png.flaticon.com/512/744/744534.png',
+    candle: 'https://cdn-icons-png.flaticon.com/512/744/744535.png',
+    macaron: 'https://cdn-icons-png.flaticon.com/512/744/744536.png',
+    drip: 'https://cdn-icons-png.flaticon.com/512/744/744537.png',
+    frosting: 'https://cdn-icons-png.flaticon.com/512/744/744538.png',
+  };
+  return map[key] || 'https://via.placeholder.com/100?text=?';
+}
+
+
+
+function CakePreview({ design, size = 80 }) {
+  const decorations = design?.decorations_with_elements || [];
+  const canvasSize = 400;
+  if (!decorations || decorations.length === 0) {
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '8px',
+          background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '1rem',
+          fontWeight: 700,
+          color: '#fff',
+          flexShrink: 0,
+        }}
+      >
+        🎂
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        position: 'relative',
+        overflow: 'hidden',
+        borderRadius: '8px',
+        border: `1.5px solid rgba(166,162,154,0.2)`,
+        background: '#f5f0ea',
+        flexShrink: 0,
+      }}
+    >
+      <img
+        src="/cake-base.svg"
+        alt="Cake base"
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+        }}
+        onError={(e) => (e.target.style.display = 'none')}
+      />
+      {decorations.map((dec, idx) => {
+        const decSize = size * 0.45 * (dec.scale ?? 1);
+        const x = (dec.x / canvasSize) * size;
+        const y = (dec.y / canvasSize) * size;
+        return (
+          <div
+            key={idx}
+            style={{
+              position: 'absolute',
+              left: x - decSize / 2,
+              top: y - decSize / 2,
+              width: decSize,
+              height: decSize,
+              pointerEvents: 'none',
+            }}
+          >
+            <SvgDecorationWeb
+              svgSource={dec.svg_source}
+              imageUrl={getFullImageUrl(dec.image_url)}
+              fallbackUrl={getFallbackUrl(dec.element_name)}
+              size={decSize}
+              color={dec.color}
+              colors={dec.colors}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
 
 const statusColors = {
   pending: '#D4A03D',
@@ -20,6 +137,46 @@ const statusColors = {
   cancelled: '#C75B5B',
 };
 
+
+
+
+/**
+ * Normalizes any date from the backend into a Manila-local YYYY-MM-DD key.
+ * Handles:
+ *   2026-09-21                          → 2026-09-21
+ *   2026-09-21T00:00:00+08:00           → 2026-09-21
+ *   2026-09-20T16:00:00Z  (Manila 21st) → 2026-09-21
+ *   2026-09-20T23:44:00Z  (Manila 21st) → 2026-09-21
+ * Invalid input → null
+ */
+const toDateKey = (dateStr) => {
+  if (!dateStr) return null;
+  const s = String(dateStr).trim();
+
+  // Plain date format: use directly
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // Timestamp: parse and format in Manila
+  const d = new Date(s);
+  if (isNaN(d.getTime())) {
+    // Last-resort regex extraction
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  }
+
+  // en-CA outputs YYYY-MM-DD
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return fmt.format(d);
+};
+
+
+
+
 const toLocalDateString = (date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -28,6 +185,7 @@ const toLocalDateString = (date) => {
 };
 
 export default function StaffSchedule() {
+  const location = useLocation(); 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +214,7 @@ export default function StaffSchedule() {
 
   useEffect(() => {
     fetchAllOrders();
-  }, []);
+  }, [location.key]);
 
   const handleDateClick = async (day) => {
     const year = currentMonth.getFullYear();
@@ -91,12 +249,11 @@ export default function StaffSchedule() {
 
   const ordersByDate = {};
   orders.forEach(o => {
-    if (o.pickup_date) {
-      const datePart = o.pickup_date.split('T')[0] || o.pickup_date;
-      if (['confirmed', 'preparing', 'ready'].includes(o.status)) {
-        if (!ordersByDate[datePart]) ordersByDate[datePart] = [];
-        ordersByDate[datePart].push(o);
-      }
+    const datePart = toDateKey(o.pickup_date);
+    if (!datePart) return;
+    if (['confirmed', 'preparing', 'ready'].includes(o.status)) {
+      if (!ordersByDate[datePart]) ordersByDate[datePart] = [];
+      ordersByDate[datePart].push(o);
     }
   });
 
@@ -350,16 +507,40 @@ export default function StaffSchedule() {
         }
         .order-items {
           display: flex;
-          flex-wrap: wrap;
-          gap: 4px;
-          margin-top: 8px;
+          flex-direction: column;
+          gap: 10px;
+          margin-top: 10px;
         }
-        .order-item-tag {
-          background: rgba(79,95,82,0.08);
-          padding: 2px 8px;
-          border-radius: 6px;
-          font-size: 0.75rem;
+        .order-item {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 4px 0;
+        }
+        .order-item-thumb {
+          width: 80px;
+          height: 80px;
+          border-radius: 8px;
+          overflow: hidden;
+          flex-shrink: 0;
+          background: #fff;
+          border: 1.5px solid rgba(166,162,154,0.2);
+        }
+        .order-item-info {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .order-item-name {
+          font-size: 0.95rem;
+          font-weight: 600;
           color: ${SAGE};
+        }
+        .order-item-qty {
+          font-size: 0.85rem;
+          font-weight: 500;
+          color: ${MUTED_GRAY};
         }
         .order-status-badge {
           padding: 3px 10px;
@@ -447,7 +628,8 @@ export default function StaffSchedule() {
               const dateStr = toLocalDateString(new Date(year, month, day));
               const isToday = dateStr === toLocalDateString(new Date());
 
-              const ordersOnDate = ordersByDate[dateStr] || [];
+              const cellDateKey = toDateKey(dateStr);
+              const ordersOnDate = cellDateKey ? (ordersByDate[cellDateKey] || []) : [];
               const orderCount = ordersOnDate.length;
 
               return (
@@ -522,11 +704,52 @@ export default function StaffSchedule() {
                       </span>
                     </div>
                     <div className="order-items">
-                      {order.items?.map(item => (
-                        <span key={item.id} className="order-item-tag">
-                          {item.menu?.name} × {item.quantity}
-                        </span>
-                      ))}
+                      {order.items?.map(item => {
+                        const isCustom = item.cake_type === 'custom' && item.custom_design;
+                        const displayName = isCustom
+                          ? (item.custom_design?.design_name || 'Custom Cake')
+                          : (item.menu?.name || 'Product');
+                        const imgUrl = !isCustom ? (item.menu?.image_url || null) : null;
+
+                        return (
+                          <div key={item.id} className="order-item">
+                            <div className="order-item-thumb">
+                              {isCustom ? (
+                                <CakePreview design={item.custom_design} size={80} />
+                              ) : imgUrl ? (
+                                <img
+                                  src={getFullImageUrl(imgUrl)}
+                                  alt={displayName}
+                                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.parentElement.innerHTML = `<div style="background:${CREAM};display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:1rem;color:${MUTED_GRAY}">🍰</div>`;
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    background: CREAM,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '100%',
+                                    height: '100%',
+                                    fontSize: '1rem',
+                                    color: MUTED_GRAY,
+                                  }}
+                                >
+                                  🍰
+                                </div>
+                              )}
+                            </div>
+                            <div className="order-item-info">
+                              <span className="order-item-name">{displayName}</span>
+                              <span className="order-item-qty">Qty: {item.quantity}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))

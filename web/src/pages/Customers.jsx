@@ -1,6 +1,10 @@
+// src/pages/Customers.jsx
 
-import React, { useState, useEffect } from 'react';
-import { Users as UsersIcon, Loader, AlertCircle, Search, CheckCircle, XCircle, Image as ImageIcon, Eye, X, CameraOff } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Users as UsersIcon, Loader, AlertCircle, Search, CheckCircle, XCircle,
+  Image as ImageIcon, Eye, X, CameraOff, CheckCircle2,
+} from 'lucide-react';
 import axios from '/api/axios';
 
 const SAGE = '#4F5F52';
@@ -12,11 +16,10 @@ const SOFT_WHITE = '#FFF3D9';
 const getImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http')) return path;
-  const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://10.95.250.170:8000';
+  const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://10.80.66.170:8000';
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return `${baseUrl}${normalizedPath}`;
 };
-
 
 // InfoItem component for consistent detail display
 function InfoItem({ label, value }) {
@@ -37,6 +40,19 @@ export default function Customers() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // ── Toast (auto-dismissing notification) ──
+  const [toast, setToast] = useState({ show: false, type: 'success', message: '' });
+
+  useEffect(() => {
+    if (!toast.show) return;
+    const timer = setTimeout(() => setToast((t) => ({ ...t, show: false })), 2800);
+    return () => clearTimeout(timer);
+  }, [toast.show]);
+
+  const showToast = useCallback((message, type = 'success') => {
+    setToast({ show: true, type, message });
+  }, []);
 
   // Modal state
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -70,8 +86,9 @@ export default function Customers() {
       if (selectedCustomer && selectedCustomer.id === id) {
         setSelectedCustomer(prev => ({ ...prev, verification_status: 'approved' }));
       }
+      showToast('Customer approved successfully.', 'success');
     } catch (err) {
-      alert('Approval failed: ' + (err.response?.data?.message || ''));
+      showToast('Approval failed: ' + (err.response?.data?.message || ''), 'error');
     }
   };
 
@@ -82,8 +99,9 @@ export default function Customers() {
       if (selectedCustomer && selectedCustomer.id === id) {
         setSelectedCustomer(prev => ({ ...prev, verification_status: 'rejected' }));
       }
+      showToast('Customer rejected.', 'success');
     } catch (err) {
-      alert('Rejection failed: ' + (err.response?.data?.message || ''));
+      showToast('Rejection failed: ' + (err.response?.data?.message || ''), 'error');
     }
   };
 
@@ -158,6 +176,8 @@ export default function Customers() {
         .fade-in-3 { animation: fadeInUp 0.4s 0.15s ease both; }
         @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(12px); } to { opacity: 1; transform: none; } }
         .anim-modal { animation: modalIn 0.25s cubic-bezier(0.25,0.46,0.45,0.94); }
+        @keyframes toastIn { from { opacity: 0; transform: translate(-50%, -20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        .toast-anim { animation: toastIn 0.3s cubic-bezier(0.25,0.46,0.45,0.94) both; }
       `}</style>
 
       <div className="grain-overlay" />
@@ -642,6 +662,43 @@ export default function Customers() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ══ Toast (auto-dismissing notification) ══ */}
+      {toast.show && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="toast-anim"
+          style={{
+            position: 'fixed',
+            top: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '12px 20px',
+            borderRadius: 14,
+            background: toast.type === 'error' ? '#FEF2F2' : '#ECFDF5',
+            color: toast.type === 'error' ? '#DC2626' : '#059669',
+            border: `1px solid ${toast.type === 'error' ? '#FEE2E2' : '#D1FAE5'}`,
+            boxShadow: '0 12px 32px rgba(79,95,82,0.18)',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            letterSpacing: '0.01em',
+            pointerEvents: 'none',
+            maxWidth: '90vw',
+          }}
+        >
+          {toast.type === 'error' ? (
+            <AlertCircle size={18} />
+          ) : (
+            <CheckCircle2 size={18} />
+          )}
+          <span>{toast.message}</span>
         </div>
       )}
     </div>
