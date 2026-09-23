@@ -6,6 +6,29 @@ import { SvgXml } from 'react-native-svg';
 // across every instance of this component.
 const svgCache = new Map<string, string>();
 
+
+/**
+ * Synchronously returns the cached SVG XML for a given URL, or null.
+ * Safe to call from JS (not from worklets).
+ */
+export function getCachedSvgXml(url?: string | null): string | null {
+  if (!url) return null;
+  return svgCache.get(url) ?? null;
+}
+
+/**
+ * Fire-and-forget prefetch. Populates the cache so the next render
+ * hits the fast path (no fetch).
+ */
+export function prefetchSvg(url?: string | null): void {
+  if (!url || !url.startsWith('http')) return;
+  if (svgCache.has(url)) return;
+  fetch(url)
+    .then((r) => (r.ok ? r.text() : Promise.reject(new Error('failed'))))
+    .then((text) => svgCache.set(url, text))
+    .catch(() => { /* ignore — component will retry on its own render */ });
+}
+
 /**
  * Applies per-part color overrides to an SVG string.
  * Targets elements that declare `data-part="<part>"` and also have a

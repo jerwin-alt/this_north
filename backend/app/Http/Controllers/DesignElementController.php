@@ -23,6 +23,7 @@ class DesignElementController extends Controller
                     'id' => $item->id,
                     'element_name' => $item->element_name,
                     'element_type' => $item->element_type,
+                    'category' => $item->category,
                     'image_url' => $item->image_url,
                     'svg_source'     => $item->svg_source,     // NEW
                     'supports_color' => $item->supports_color, // NEW

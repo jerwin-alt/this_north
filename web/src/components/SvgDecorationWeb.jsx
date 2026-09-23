@@ -1,14 +1,8 @@
 // web/src/components/SvgDecorationWeb.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 
-// Module-level cache — SVG source is fetched once per URL.
 const svgCache = new Map();
 
-/**
- * Applies per-part color overrides to an SVG string.
- * Targets elements that declare data-part="<part>" AND have fill="…".
- * Safe to call with null/undefined — returns the SVG unchanged.
- */
 function applyColors(svg, colors) {
   if (!colors) return svg;
   let out = svg;
@@ -22,10 +16,6 @@ function applyColors(svg, colors) {
   return out;
 }
 
-/**
- * Forces the root <svg> to fill its parent by stripping any hard-coded
- * width/height and setting 100%/100%.
- */
 function forceSvgFill(svg) {
   return svg.replace(/<svg([^>]*)>/, (_, attrs) => {
     const cleaned = attrs
@@ -35,39 +25,21 @@ function forceSvgFill(svg) {
   });
 }
 
-export default function SvgDecorationWeb({
-  svgSource,
-  imageUrl,       // Primary image URL (backend)
-  fallbackUrl,    // Fallback image URL (local asset or CDN)
-  size,
-  color,
-  colors,
-}) {
+// ─── Inner component that uses hooks — only rendered when tint is needed ───
+function TintedSvg({ svgSource, size, color, colors, onFail }) {
   const [svgString, setSvgString] = useState(null);
-  const [svgFailed, setSvgFailed] = useState(false);
-  const [currentSrc, setCurrentSrc] = useState(null);
-  const [imgFailed, setImgFailed] = useState(false);
+  const [failed, setFailed] = useState(false);
 
-  // ── Resolve SVG source ──
   useEffect(() => {
     let cancelled = false;
-    setSvgFailed(false);
+    setFailed(false);
 
-    if (!svgSource) {
-      setSvgString(null);
-      return;
-    }
+    if (!svgSource) { setSvgString(null); return; }
 
-    if (!svgSource.startsWith('http')) {
-      setSvgString(svgSource);
-      return;
-    }
+    if (!svgSource.startsWith('http')) { setSvgString(svgSource); return; }
 
     const cached = svgCache.get(svgSource);
-    if (cached) {
-      setSvgString(cached);
-      return;
-    }
+    if (cached) { setSvgString(cached); return; }
 
     fetch(svgSource)
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error('svg fetch failed'))))
@@ -76,25 +48,13 @@ export default function SvgDecorationWeb({
         svgCache.set(svgSource, text);
         setSvgString(text);
       })
-      .catch(() => {
-        if (!cancelled) setSvgFailed(true);
-      });
+      .catch(() => { if (!cancelled) setFailed(true); });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [svgSource]);
 
-  // ── Reset image source when imageUrl or fallbackUrl changes ──
-  useEffect(() => {
-    setCurrentSrc(imageUrl || fallbackUrl || null);
-    setImgFailed(false);
-  }, [imageUrl, fallbackUrl]);
-
-  // ── Apply tints ──
   const tinted = useMemo(() => {
     if (!svgString) return null;
-
     if (color && !colors) {
       const re = /(<svg[^>]*\bfill=["'])([^"']*)(["'])/;
       const filled = re.test(svgString)
@@ -102,46 +62,90 @@ export default function SvgDecorationWeb({
         : svgString.replace(/<svg([^>]*)>/, `<svg$1 fill="${color}">`);
       return forceSvgFill(filled);
     }
-
     if (colors) return forceSvgFill(applyColors(svgString, colors));
     return forceSvgFill(svgString);
   }, [svgString, color, colors]);
 
-  // ── Render SVG if available ──
-  if (tinted && !svgFailed) {
+  useEffect(() => {
+    if (failed && onFail) onFail();
+  }, [failed, onFail]);
+
+  if (!tinted || failed) return null;
+
+  return (
+    <div
+      style={{ width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      dangerouslySetInnerHTML={{ __html: tinted }}
+    />
+  );
+}
+
+// ─── Public component: no hooks, just picks the right strategy ───
+export default function SvgDecorationWeb({
+  svgSource,
+  imageUrl,
+  fallbackUrl,
+  size,
+  color,
+  colors,
+}) {
+  const [tintFailed, setTintFailed] = useState(false);
+
+  // Fallback chain (in order):
+  //   1. If SVG is present and no tint needed → <img> (no CORS)
+  //   2. If SVG is present and tint needed → fetch + inline (needs CORS)
+  //   3. imageUrl (backend PNG)
+  //   4. fallbackUrl (local asset)
+  //   5. empty spacer
+
+  if (svgSource && !tintFailed) {
+    const needsTint = !!(color || colors);
+
+    if (!needsTint) {
+      // Pure <img> path — cross-origin safe
+      return (
+        <img
+          src={svgSource}
+          alt=""
+          style={{ width: size, height: size, objectFit: 'contain' }}
+          onError={() => setTintFailed(true)}
+        />
+      );
+    }
+
+    // Fetch + inline path (works only if CORS is set up)
     return (
-      <div
-        style={{
-          width: size,
-          height: size,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-        dangerouslySetInnerHTML={{ __html: tinted }}
+      <TintedSvg
+        svgSource={svgSource}
+        size={size}
+        color={color}
+        colors={colors}
+        onFail={() => setTintFailed(true)}
       />
     );
   }
 
-  // ── Render image with onError → fallback ──
-  if (currentSrc && !imgFailed) {
+  // PNG fallbacks
+  if (imageUrl) {
     return (
       <img
-        src={currentSrc}
-        onError={() => {
-          // Primary failed — try the fallback if we haven't yet.
-          if (fallbackUrl && currentSrc !== fallbackUrl) {
-            setCurrentSrc(fallbackUrl);
-          } else {
-            setImgFailed(true);
-          }
-        }}
-        style={{ width: size, height: size, objectFit: 'contain' }}
+        src={imageUrl}
         alt=""
+        style={{ width: size, height: size, objectFit: 'contain' }}
+        onError={() => { /* silently fail */ }}
       />
     );
   }
 
-  // ── Nothing left ──
+  if (fallbackUrl) {
+    return (
+      <img
+        src={fallbackUrl}
+        alt=""
+        style={{ width: size, height: size, objectFit: 'contain' }}
+      />
+    );
+  }
+
   return <div style={{ width: size, height: size }} />;
 }

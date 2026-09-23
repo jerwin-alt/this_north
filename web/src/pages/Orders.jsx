@@ -67,7 +67,7 @@ const formatShortDate = (dateStr) => {
   });
 };
 
-const API_BASE_URL = axios.defaults.baseURL?.replace('/api', '') || 'http://10.80.66.170:8000';
+const API_BASE_URL = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
 const getFullImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http')) return path;
@@ -78,18 +78,7 @@ const getFullImageUrl = (path) => {
 function getFallbackUrl(elementName) {
   const key = elementName?.toLowerCase().replace(/\s/g, '') || '';
   if (key === 'strawberry') return strawberryImage;
-  const map = {
-    cherry: 'https://cdn-icons-png.flaticon.com/512/744/744530.png',
-    blueberry: 'https://cdn-icons-png.flaticon.com/512/744/744531.png',
-    chocolate: 'https://cdn-icons-png.flaticon.com/512/744/744532.png',
-    sprinkles: 'https://cdn-icons-png.flaticon.com/512/744/744533.png',
-    flower: 'https://cdn-icons-png.flaticon.com/512/744/744534.png',
-    candle: 'https://cdn-icons-png.flaticon.com/512/744/744535.png',
-    macaron: 'https://cdn-icons-png.flaticon.com/512/744/744536.png',
-    drip: 'https://cdn-icons-png.flaticon.com/512/744/744537.png',
-    frosting: 'https://cdn-icons-png.flaticon.com/512/744/744538.png',
-  };
-  return map[key] || 'https://via.placeholder.com/40?text=?';
+  return null;   // No more wrong Flaticon icons
 }
 
 // ── CakePreviewWeb ──

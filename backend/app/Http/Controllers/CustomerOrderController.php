@@ -27,7 +27,8 @@ class CustomerOrderController extends Controller
                 'items.menu' => function ($q) {
                     $q->select('id', 'name', 'image_url', 'base_price', 'menu_type');
                 },
-                'items.customDesign',
+                'items.customDesign.cakeSize',      // ← NEW — brings shape + size info
+                'items.customDesign.cakeFlavor',
                 'payments'
             ])
             ->orderBy('order_date', 'desc')
@@ -89,6 +90,7 @@ class CustomerOrderController extends Controller
             'items.*.cake_type' => 'nullable|in:standard,custom',
             'items.*.custom_design_id' => 'nullable|exists:custom_designs,id',
             'items.*.custom_design' => 'nullable|array',
+            'items.*.custom_design.tiers' => 'nullable|integer|min:1|max:3',
             'pickup_date' => 'required|date|after_or_equal:today',
             'pickup_time' => 'required|date_format:H:i:s',
             'notes' => 'nullable|string',
@@ -216,6 +218,7 @@ class CustomerOrderController extends Controller
                             'cake_size_id' => $designData['cake_size_id'] ?? null,
                             'cake_flavor_id' => $designData['cake_flavor_id'] ?? null,
                             'frosting_flavor' => $designData['frosting_flavor'] ?? null,
+                            'tiers' => $designData['tiers'] ?? 1,     
                             'custom_flavor' => $designData['custom_flavor'] ?? 'custom',
                             'design_name' => $designData['design_name'] ?? null,
                             'design_data' => $designData['decorations'] ?? [],

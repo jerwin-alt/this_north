@@ -19,6 +19,7 @@ class CustomDesign extends Model
         'cake_size_id',
         'cake_flavor_id',
         'frosting_flavor',
+        'tiers',
         'design_data', // JSON storing decoration placements
         'dedication_message',
         'special_instructions',
@@ -30,6 +31,7 @@ class CustomDesign extends Model
         'design_data' => 'array',
         'total_price' => 'decimal:2',
         'is_saved' => 'boolean',
+        'tiers' => 'integer',   
     ];
 
 
@@ -63,20 +65,23 @@ class CustomDesign extends Model
         $elements = DesignElement::whereIn('id', $elementIds)->get()->keyBy('id');
 
         return array_map(function ($dec) use ($elements) {
-            $element = $elements->get($dec['element_id']);
+            $element = $elements->get($dec['element_id'] ?? null);
             return [
-                'element_id' => $dec['element_id'],
-                'x' => $dec['x'],
-                'y' => $dec['y'],
-                'scale'          => $dec['scale']  ?? 1,     // NEW, default 1
-                'color'          => $dec['color']  ?? null,  // NEW, single-color tint
-                'colors'         => $dec['colors'] ?? null,  // NEW, part → hex
-                'element_name' => $element->element_name ?? null,
-                'image_url' => $element->image_url ?? null,
-                'svg_source'     => $element->svg_source   ?? null,
+                'element_id'     => $dec['element_id'] ?? null,
+                'x'              => $dec['x'] ?? 0,
+                'y'              => $dec['y'] ?? 0,
+                'scale'          => $dec['scale'] ?? 1,
+                'color'          => $dec['color'] ?? null,
+                'colors'         => $dec['colors'] ?? null,
+                'tier_index'     => $dec['tier_index'] ?? 0,           // ← NEW
+                'element_name'   => $element->element_name ?? null,
+                'element_type'   => $element->element_type ?? null,
+                'category'       => $element->category ?? null,
+                'image_url'      => $element->image_url ?? null,
+                'svg_source'     => $element->svg_source ?? null,
                 'supports_color' => $element->supports_color ?? false,
-                'color_parts'    => $element->color_parts  ?? null,
-                'default_price' => $element->default_price ?? 0,
+                'color_parts'    => $element->color_parts ?? null,
+                'default_price'  => $element->default_price ?? 0,
             ];
         }, $decorations);
     }

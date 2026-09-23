@@ -27,7 +27,7 @@ const categoryIcons = {
 const getImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http')) return path;
-  const base = axios.defaults.baseURL?.replace('/api', '') || 'http://10.80.66.170:8000';
+  const base = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
   return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
 };
 

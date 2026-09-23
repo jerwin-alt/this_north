@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path data-part="flame" d="M50 8 C42 20 40 28 50 34 C60 28 58 20 50 8 Z" fill="#FFB627"/>
+  <path d="M50 18 C46 24 46 28 50 32 C54 28 54 24 50 18 Z" fill="#FF6B00"/>
+  <rect x="49" y="34" width="2" height="6" fill="#333333"/>
+  <rect data-part="body" x="38" y="40" width="24" height="52" rx="3" fill="#5B7A8A"/>
+  <rect x="42" y="46" width="5" height="30" rx="2.5" fill="#FFFFFF" opacity="0.3"/>
+  <ellipse cx="38" cy="48" rx="2" ry="6" fill="#4A6878"/>
+  <ellipse cx="62" cy="46" rx="2" ry="5" fill="#4A6878"/>
+</svg>

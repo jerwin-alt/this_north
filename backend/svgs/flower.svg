@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g data-part="petals" fill="#E8A0BF">
+    <ellipse cx="50" cy="24" rx="13" ry="20"/>
+    <ellipse cx="74" cy="42" rx="13" ry="20" transform="rotate(72 74 42)"/>
+    <ellipse cx="64" cy="72" rx="13" ry="20" transform="rotate(144 64 72)"/>
+    <ellipse cx="36" cy="72" rx="13" ry="20" transform="rotate(216 36 72)"/>
+    <ellipse cx="26" cy="42" rx="13" ry="20" transform="rotate(288 26 42)"/>
+  </g>
+  <circle data-part="center" cx="50" cy="50" r="12" fill="#FFD166"/>
+  <circle cx="47" cy="47" r="1.8" fill="#D4A800" opacity="0.6"/>
+  <circle cx="54" cy="49" r="1.5" fill="#D4A800" opacity="0.6"/>
+  <circle cx="50" cy="54" r="1.8" fill="#D4A800" opacity="0.6"/>
+</svg>

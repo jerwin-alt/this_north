@@ -99,9 +99,9 @@ export const initEcho = async () => {
   }
 
  
-  const HOST = '10.80.66.170';   
+  const HOST = '10.90.129.170';   
   const PORT = 8080;              // Reverb port
-  const APP_KEY = '10.80.66.170'; // REVERB_APP_KEY from .env
+  const APP_KEY = '10.90.129.170'; // REVERB_APP_KEY from .env
 
   const options = {
     broadcaster: 'pusher',

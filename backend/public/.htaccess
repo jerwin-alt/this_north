@@ -19,3 +19,6 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+
+# Serve SVG files with the correct MIME type (needed for local Laragon)
+AddType image/svg+xml .svg

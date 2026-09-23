@@ -1,6 +1,6 @@
 // mobile/app/customer/cakeCustomization.tsx
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo  } from 'react';
 import {
   View,
   Text,
@@ -28,13 +28,18 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import axios from '@/api/axios';
-import SvgDecoration from '@/components/SvgDecoration';
+import SvgDecoration, { prefetchSvg } from '@/components/SvgDecoration';
 import { useAuth } from '@/contexts/auth-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAppStore } from '@/stores/appStore';
 import { SvgXml } from 'react-native-svg';
-import { CAKE_BASE_XML } from '@/constants/cakeBase';
-
+import {
+  buildCakeSvg,
+  getTierGeometries,
+  getIcingPosition,
+  getIcingColorFromName,
+  type CakeShape,
+} from '@/constants/cakeBase';
 const { width } = Dimensions.get('window');
 
 // ---- Colors ----
@@ -56,29 +61,25 @@ const DECORATION_IMAGES: Record<string, any> = {
 };
 
 // Fallback remote URLs
-const FALLBACK_URLS: Record<string, string> = {
-  strawberry: 'https://cdn-icons-png.flaticon.com/512/744/744528.png',
-  cherry: 'https://cdn-icons-png.flaticon.com/512/744/744530.png',
-  blueberry: 'https://cdn-icons-png.flaticon.com/512/744/744531.png',
-  chocolate: 'https://cdn-icons-png.flaticon.com/512/744/744532.png',
-  sprinkles: 'https://cdn-icons-png.flaticon.com/512/744/744533.png',
-  flower: 'https://cdn-icons-png.flaticon.com/512/744/744534.png',
-  candle: 'https://cdn-icons-png.flaticon.com/512/744/744535.png',
-  macaron: 'https://cdn-icons-png.flaticon.com/512/744/744536.png',
-  drip: 'https://cdn-icons-png.flaticon.com/512/744/744537.png',
-  frosting: 'https://cdn-icons-png.flaticon.com/512/744/744538.png',
+// DELETE the entire FALLBACK_URLS constant.
+
+const getDecorationSource = (elementName?: string, imageUrl?: string) => {
+  const key = elementName?.toLowerCase().replace(/\s/g, '') || '';
+  if (DECORATION_IMAGES[key]) return DECORATION_IMAGES[key];
+  if (imageUrl && imageUrl.startsWith('http')) return { uri: imageUrl };
+  return null;   // No wrong fallbacks — let SvgDecoration handle it
 };
 
 // ---- Helper to get image source ----
-const getDecorationSource = (elementName: string, imageUrl?: string) => {
-  const key = elementName.toLowerCase().replace(/\s/g, '');
-  if (DECORATION_IMAGES[key]) return DECORATION_IMAGES[key];
-  if (imageUrl) {
-    if (imageUrl.startsWith('http')) return { uri: imageUrl };
-  }
-  if (FALLBACK_URLS[key]) return { uri: FALLBACK_URLS[key] };
-  return null;
-};
+// const getDecorationSource = (elementName: string, imageUrl?: string) => {
+//   const key = elementName.toLowerCase().replace(/\s/g, '');
+//   if (DECORATION_IMAGES[key]) return DECORATION_IMAGES[key];
+//   if (imageUrl) {
+//     if (imageUrl.startsWith('http')) return { uri: imageUrl };
+//   }
+//   if (FALLBACK_URLS[key]) return { uri: FALLBACK_URLS[key] };
+//   return null;
+// };
 
 // ---- Cake background ----
 //const CAKE_BACKGROUND = require('@/assets/images/CUSTOMIZE_CAKE7_YES.png');
@@ -108,6 +109,7 @@ interface DecorationElement {
   id: number;
   element_name: string;
   element_type: string;
+  category?: string;
   image_url?: string;
   svg_source?: string | null;        // NEW — URL or inline XML
   supports_color?: boolean;          // NEW
@@ -123,6 +125,7 @@ interface PlacedDecoration {
   scale?: number;                    // NEW — default 1
   color?: string | null;             // NEW — single-color tint
   colors?: Record<string, string>;   // NEW — per-part tint
+  tierIndex?: number;   
   element: DecorationElement;
 }
 
@@ -130,6 +133,9 @@ interface CakeSize {
   id: number;
   size_name: string;
   size_inches: number;
+  shape: CakeShape;
+  tiers: number;
+  base_size_inches: number;
   price_modifier: number;
   is_active: boolean;
 }
@@ -164,6 +170,13 @@ export default function CakeCustomization() {
   const [cakeSizes, setCakeSizes] = useState<CakeSize[]>([]);
   const [cakeFlavors, setCakeFlavors] = useState<CakeFlavor[]>([]);
   const [selectedSize, setSelectedSize] = useState<number | null>(null);
+  const [selectedShape, setSelectedShape] = useState<CakeShape>('round');
+  const [tierCount, setTierCount] = useState<number>(1);
+  const [activeTierIndex, setActiveTierIndex] = useState<number>(0);
+  const activeTierIndexRef = useRef<number>(0);
+  useEffect(() => {
+    activeTierIndexRef.current = activeTierIndex;
+  }, [activeTierIndex]);
   const [selectedFlavor, setSelectedFlavor] = useState<number | null>(null);
   const [frostingFlavor, setFrostingFlavor] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -190,8 +203,14 @@ export default function CakeCustomization() {
   } | null>(null);
 
   // ---- Ghost state ----
-  const [ghostImage, setGhostImage] = useState<any>(null);
+// const [ghostXml, setGhostXml] = useState<string | null>(null);
+
   const [isGhostVisible, setIsGhostVisible] = useState(false);
+
+  // const [ghostElement, setGhostElement] = useState<{
+  //   svgSource?: string | null;
+  //   imageUrl?: any;
+  // } | null>(null);
 
   // ---- Shared values for ghost position ----
   const ghostX = useSharedValue(0);
@@ -212,20 +231,56 @@ export default function CakeCustomization() {
     if (isMounted.current) setPlacedDecorations(updateFn);
   }, []);
 
-  const safeSetGhostImage = useCallback((img: any) => {
-    if (isMounted.current) setGhostImage(img);
-  }, []);
+  // const safeSetGhostImage = useCallback((img: any) => {
+  //   if (isMounted.current) setGhostImage(img);
+  // }, []);
+
+  // const safeSetGhostXml = useCallback((xml: string | null) => {
+  //   if (isMounted.current) setGhostXml(xml);
+  // }, []);
 
   const safeSetIsGhostVisible = useCallback((visible: boolean) => {
     if (isMounted.current) setIsGhostVisible(visible);
   }, []);
 
+  // const safeSetGhostElement = useCallback((el: any) => {
+  //   if (isMounted.current) setGhostElement(el);
+  // }, []);
+
   const resetDrag = useCallback(() => {
     safeSetIsGhostVisible(false);
-    safeSetGhostImage(null);
     ghostX.value = 0;
     ghostY.value = 0;
   }, []);
+
+
+
+  
+  // ── Helpers for icing (frosting) handling ──
+  const isIcing = (element: DecorationElement) =>
+    element?.element_type === 'icing';
+
+  // Determine which frosting slot this element occupies.
+  // Returns 0 for side frosting, 1 for top frosting, 2 for everything else.
+  const frostingLayerPriority = (element: DecorationElement): number => {
+    if (!element || element.element_type !== 'icing') return 2;
+    // Side frostings render first (behind), top frostings render second (in front),
+    // so the top frosting correctly covers the boundary between the two.
+    const cat = (element.category || '').toLowerCase();
+    if (cat.includes('side')) return 0;
+    if (cat.includes('top')) return 1;
+    return 1; // default icing = top
+  };
+
+  const sortFrostingsFirst = (decs: PlacedDecoration[]) => {
+    return [...decs].sort((a, b) => {
+      const aP = frostingLayerPriority(a.element);
+      const bP = frostingLayerPriority(b.element);
+      if (aP !== bP) return aP - bP;
+      return 0; // stable — preserve insertion order within the same priority
+    });
+  };
+  
 
   // ---- Core function: add decoration at drop position ----
   const addDecorationAtDrop = useCallback((absX: number, absY: number, element: DecorationElement) => {
@@ -233,26 +288,50 @@ export default function CakeCustomization() {
       resetDrag();
       return;
     }
+    const icing = isIcing(element);
+
     canvasRef.current.measure((x, y, width, height, pageX, pageY) => {
       const relX = absX - pageX;
       const relY = absY - pageY;
       const inside = relX >= 0 && relX <= width && relY >= 0 && relY <= height;
-      if (inside) {
-        const clampedX = Math.max(0, Math.min(relX, width));
-        const clampedY = Math.max(0, Math.min(relY, height));
-        const newDec: PlacedDecoration = {
-          id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-          elementId: element.id,
-          x: clampedX,
-          y: clampedY,
-          element: element,
-        };
-        safeSetPlacedDecorations(prev => {
-          const exists = prev.some(d => d.elementId === element.id && d.x === clampedX && d.y === clampedY);
-          if (exists) return prev;
-          return [...prev, newDec];
-        });
-      }
+      if (!inside) { resetDrag(); return; }
+
+      // Frostings snap to a fixed position (they cover the whole canvas anyway)
+      const clampedX = icing ? 0 : Math.max(0, Math.min(relX, width));
+      const clampedY = icing ? 0 : Math.max(0, Math.min(relY, height));
+
+      const newDec: PlacedDecoration = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        elementId: element.id,
+        x: clampedX,
+        y: clampedY,
+        tierIndex: icing ? activeTierIndexRef.current : undefined,
+        element,
+      };
+
+      safeSetPlacedDecorations(prev => {
+          if (icing) {
+            const incomingCat = element.category ?? '__no_cat__';
+            const incomingTier = activeTierIndexRef.current;
+            const filtered = prev.filter(d => {
+            if (d.element.element_type !== 'icing') return true;
+            const existingCat = d.element.category ?? '__no_cat__';
+            const existingTier = d.tierIndex ?? 0;
+            // Drop only icings of the same category AND the same tier
+            if (existingCat !== incomingCat) return true;
+            if (existingTier !== incomingTier) return true;
+            return false;
+          });
+          return [...filtered, newDec];
+        }
+        // Regular decoration — avoid exact-position duplicates
+        const exists = prev.some(d =>
+          d.elementId === element.id && d.x === clampedX && d.y === clampedY
+        );
+        if (exists) return prev;
+        return [...prev, newDec];
+      });
+
       resetDrag();
     });
   }, [resetDrag, safeSetPlacedDecorations]);
@@ -280,10 +359,8 @@ export default function CakeCustomization() {
 
   // ---- Gesture creators ----
   const createAddGesture = (element: DecorationElement) => {
-    const source = getDecorationSource(element.element_name, element.image_url);
     return Gesture.Pan()
       .onStart(() => {
-        runOnJS(safeSetGhostImage)(source);
         runOnJS(safeSetIsGhostVisible)(true);
       })
       .onUpdate((event) => {
@@ -296,10 +373,8 @@ export default function CakeCustomization() {
   };
 
   const createMoveGesture = (dec: PlacedDecoration) => {
-    const source = getDecorationSource(dec.element.element_name, dec.element.image_url);
     return Gesture.Pan()
       .onStart(() => {
-        runOnJS(safeSetGhostImage)(source);
         runOnJS(safeSetIsGhostVisible)(true);
       })
       .onUpdate((event) => {
@@ -318,12 +393,30 @@ export default function CakeCustomization() {
     fetchCakeFlavors();
   }, []);
 
+  useEffect(() => {
+    if (!elements || Object.keys(elements).length === 0) return;
+    const all = Object.values(elements).flat();
+    all.forEach((el) => {
+      if (el.svg_source) prefetchSvg(el.svg_source);
+    });
+  }, [elements]);
+
   const fetchDesignElements = async () => {
     try {
       const res = await axios.get('/design-elements');
       const data = res.data;
       if (data.elements && Object.keys(data.elements).length > 0) {
-        setElements(data.elements);
+        // Inject category into each element so downstream code can rely on it
+        // even if the API response omits the field.
+        const withCategory: Record<string, DecorationElement[]> = {};
+        Object.entries(data.elements).forEach(([category, items]: [string, any]) => {
+          withCategory[category] = (items as any[]).map((it) => ({
+            ...it,
+            category: it.category || category,
+          }));
+        });
+
+        setElements(withCategory);
         setCategories(data.categories || []);
         if (data.categories?.length > 0) setSelectedCategory(data.categories[0]);
       } else {
@@ -365,9 +458,14 @@ export default function CakeCustomization() {
       if (sizes.length > 0) setSelectedSize(sizes[0].id);
     } catch (err) {
       const fallback: CakeSize[] = [
-        { id: 1, size_name: '6 inch', size_inches: 6, price_modifier: 0, is_active: true },
-        { id: 2, size_name: '8 inch', size_inches: 8, price_modifier: 200, is_active: true },
-        { id: 3, size_name: '10 inch', size_inches: 10, price_modifier: 400, is_active: true },
+        { id: 1, size_name: 'Junior',         shape: 'round',  tiers: 1, base_size_inches: 6,  size_inches: 6,  price_modifier: 900,  is_active: true },
+        { id: 2, size_name: 'Regular',        shape: 'round',  tiers: 1, base_size_inches: 8,  size_inches: 8,  price_modifier: 1800, is_active: true },
+        { id: 3, size_name: '10" Round',      shape: 'round',  tiers: 1, base_size_inches: 10, size_inches: 10, price_modifier: 2600, is_active: true },
+        { id: 4, size_name: '12" Round',      shape: 'round',  tiers: 1, base_size_inches: 12, size_inches: 12, price_modifier: 3400, is_active: true },
+        { id: 5, size_name: '6" Square',      shape: 'square', tiers: 1, base_size_inches: 6,  size_inches: 6,  price_modifier: 1200, is_active: true },
+        { id: 6, size_name: '8" Square',      shape: 'square', tiers: 1, base_size_inches: 8,  size_inches: 8,  price_modifier: 2200, is_active: true },
+        { id: 7, size_name: '10" Square',     shape: 'square', tiers: 1, base_size_inches: 10, size_inches: 10, price_modifier: 3200, is_active: true },
+        { id: 8, size_name: '12" Square',     shape: 'square', tiers: 1, base_size_inches: 12, size_inches: 12, price_modifier: 4200, is_active: true },
       ];
       setCakeSizes(fallback);
       setSelectedSize(1);
@@ -433,6 +531,7 @@ export default function CakeCustomization() {
         cake_size_id: sizeId,
         cake_flavor_id: selectedFlavor || null,
         frosting_flavor: frostingFlavor || null,
+        tiers: tierCount,                                       // ← NEW
         custom_flavor: 'custom',
         decorations: decorations.map(d => ({
           element_id: d.elementId,
@@ -441,6 +540,7 @@ export default function CakeCustomization() {
           scale: d.scale ?? 1,
           color: d.color ?? null,
           colors: d.colors ?? null,
+          tier_index: d.tierIndex ?? 0,                          // ← NEW
         })),
         special_instructions: specialInstructions,
         total_price: calculateTotal(),
@@ -539,14 +639,81 @@ export default function CakeCustomization() {
     }
   };
 
+
+  const tierFrostings = useMemo(() => {
+    const map: Record<number, { side?: string; top?: string }> = {};
+    placedDecorations.forEach((dec) => {
+      if (!isIcing(dec.element)) return;
+      const tierIdx = dec.tierIndex ?? 0;
+      const pos = getIcingPosition(dec.element.element_name);
+      const color = getIcingColorFromName(dec.element.element_name);
+      if (!map[tierIdx]) map[tierIdx] = {};
+      map[tierIdx][pos] = color;
+    });
+    return map;
+  }, [placedDecorations]);
+
+  const baseCakeXml = useMemo(
+    () => buildCakeSvg({
+      shape: selectedShape,
+      tierCount,
+      tierFrostings,
+    }),
+    [selectedShape, tierCount, tierFrostings]
+  );
+
+  const visibleSizes = useMemo(
+    () => cakeSizes.filter(s => s.shape === selectedShape && s.is_active),
+    [cakeSizes, selectedShape]
+  );
+
+
+  
   // ---- Render canvas ----
   const renderCanvas = () => {
     const decorations = Array.isArray(placedDecorations) ? placedDecorations : [];
     return (
       <View ref={canvasRef} style={styles.canvasContainer}>
         <View style={styles.canvas}>
-          <SvgXml xml={CAKE_BASE_XML} width="100%" height="100%" />
-          {decorations.map((dec) => {
+          <SvgXml xml={baseCakeXml} width="100%" height="100%" />
+
+          {/* ── Icing X buttons — positioned per tier ── */}
+          {decorations.filter((d) => isIcing(d.element)).map((dec) => {
+            const geo = getTierGeometries(selectedShape, tierCount)[dec.tierIndex ?? 0];
+            if (!geo) return null;
+            const isTop = getIcingPosition(dec.element.element_name) === 'top';
+            const xBtn = isTop
+              ? geo.cx + geo.rx * 0.72
+              : geo.cx + geo.rx * 0.82;
+            const yBtn = isTop
+              ? geo.cyTop - geo.ry * 0.78
+              : geo.cyTop + geo.wallH * 0.55;
+            return (
+              <TouchableOpacity
+                key={`icing-x-${dec.id}`}
+                style={{
+                  position: 'absolute',
+                  left: xBtn - 12,
+                  top: yBtn - 12,
+                  backgroundColor: '#fff',
+                  borderRadius: 12,
+                  padding: 2,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 4,
+                  elevation: 3,
+                  zIndex: 10,
+                }}
+                onPress={() => removeDecoration(dec.id)}
+              >
+                <Ionicons name="close-circle" size={18} color="#EF4444" />
+              </TouchableOpacity>
+            );
+          })}
+
+          {/* ── Regular decorations ── */}
+          {decorations.filter((d) => !isIcing(d.element)).map((dec) => {
             const gesture = createMoveGesture(dec);
             const decSize = 40 * (dec.scale ?? 1);
             return (
@@ -579,6 +746,7 @@ export default function CakeCustomization() {
               </GestureDetector>
             );
           })}
+
           <Text style={styles.canvasHint}>Drag decorations here</Text>
         </View>
       </View>
@@ -586,10 +754,19 @@ export default function CakeCustomization() {
   };
 
   const renderGhost = () => {
-    if (!isGhostVisible || !ghostImage) return null;
+    if (!isGhostVisible) return null;
     return (
       <Animated.View style={[styles.ghost, ghostStyle]} pointerEvents="none">
-        <Image source={ghostImage} style={styles.ghostImage} />
+        <View
+          style={{
+            width: 50,
+            height: 50,
+            borderRadius: 25,
+            borderWidth: 2.5,
+            borderColor: '#4F5F52',
+            backgroundColor: 'rgba(79,95,82,0.18)',
+          }}
+        />
       </Animated.View>
     );
   };
@@ -611,18 +788,15 @@ export default function CakeCustomization() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.libraryList}
         renderItem={({ item }) => {
-          const source = getDecorationSource(item.element_name, item.image_url);
           const gesture = createAddGesture(item);
           return (
             <GestureDetector gesture={gesture}>
               <Animated.View style={styles.libraryItem}>
-                {source ? (
-                  <Image source={source} style={styles.libraryImage} />
-                ) : (
-                  <View style={styles.libraryImagePlaceholder}>
-                    <MaterialCommunityIcons name="cake-variant" size={28} color={MUTED_GRAY} />
-                  </View>
-                )}
+                <SvgDecoration
+                  svgSource={item.svg_source}
+                  imageUrl={getDecorationSource(item.element_name, item.image_url)}
+                  size={50}
+                />
                 <Text style={styles.libraryItemName} numberOfLines={1}>
                   {item.element_name}
                 </Text>
@@ -635,13 +809,13 @@ export default function CakeCustomization() {
   };
 
   const renderCategoryTabs = () => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.categoryScroll}
-      contentContainerStyle={styles.categoryContainer}
-    >
-      {categories.map(cat => (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoryScroll}
+        contentContainerStyle={styles.categoryContainer}
+      >
+        {categories.map(cat => (
         <TouchableOpacity
           key={cat}
           onPress={() => setSelectedCategory(cat)}
@@ -685,11 +859,100 @@ export default function CakeCustomization() {
           {/* Options */}
           <View style={styles.optionsSection}>
             <Text style={styles.optionsTitle}>Cake Options</Text>
+            <View style={styles.optionRow}>
+              <Text style={styles.optionLabel}>Cake Shape</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {(['round', 'square'] as const).map((shape) => (
+                  <TouchableOpacity
+                    key={shape}
+                    style={[
+                      styles.optionChip,
+                      { minWidth: 100, alignItems: 'center' },
+                      selectedShape === shape && styles.optionChipActive,
+                    ]}
+                    onPress={() => {
+                      setSelectedShape(shape);
+                      // Square + multi-tier not supported in Phase 2a → force 1 tier
+                      if (shape === 'square') {
+                        setTierCount(1);
+                        setActiveTierIndex(0);
+                      }
+                      const first = cakeSizes.find(s => s.shape === shape && s.is_active);
+                      if (first) setSelectedSize(first.id);
+                    }}
+                  >
+                    <Text style={[
+                      styles.optionChipText,
+                      selectedShape === shape && styles.optionChipTextActive,
+                    ]}>
+                      {shape === 'round' ? 'Round' : 'Square'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* ── Tier count selector (Round only) ── */}
+            {selectedShape === 'round' && (
+              <View style={styles.optionRow}>
+                <Text style={styles.optionLabel}>Cake Tiers</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {[1, 2, 3].map((n) => (
+                    <TouchableOpacity
+                      key={n}
+                      style={[
+                        styles.optionChip,
+                        { minWidth: 80, alignItems: 'center' },
+                        tierCount === n && styles.optionChipActive,
+                      ]}
+                      onPress={() => {
+                        setTierCount(n);
+                        setActiveTierIndex(n - 1);   // default to top tier
+                      }}
+                    >
+                      <Text style={[
+                        styles.optionChipText,
+                        tierCount === n && styles.optionChipTextActive,
+                      ]}>
+                        {n} {n === 1 ? 'tier' : 'tiers'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* ── Active tier selector (only when tierCount > 1) ── */}
+            {tierCount > 1 && (
+              <View style={styles.optionRow}>
+                <Text style={styles.optionLabel}>Decorating Tier</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {Array.from({ length: tierCount }, (_, i) => i).reverse().map((idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      style={[
+                        styles.optionChip,
+                        { minWidth: 90, alignItems: 'center' },
+                        activeTierIndex === idx && styles.optionChipActive,
+                      ]}
+                      onPress={() => setActiveTierIndex(idx)}
+                    >
+                      <Text style={[
+                        styles.optionChipText,
+                        activeTierIndex === idx && styles.optionChipTextActive,
+                      ]}>
+                        Tier {idx + 1}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
 
             <View style={styles.optionRow}>
               <Text style={styles.optionLabel}>Size</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {cakeSizes.map(size => (
+                {visibleSizes.map(size => (
                   <TouchableOpacity
                     key={size.id}
                     style={[
@@ -810,10 +1073,12 @@ export default function CakeCustomization() {
                     style={styles.summaryCanvas}
                     onLayout={onSummaryLayout}
                   >
-                    <SvgXml xml={CAKE_BASE_XML} width="100%" height="100%" />
+                    <SvgXml xml={baseCakeXml} width="100%" height="100%" />
 
-                    {Array.isArray(placedDecorations) && placedDecorations.map((dec) => {
-                      const scaledX = dec.x * summaryScale;
+                  {Array.isArray(placedDecorations) && placedDecorations
+                    .filter((dec) => !isIcing(dec.element))
+                    .map((dec) => {
+                    const scaledX = dec.x * summaryScale;
                       const scaledY = dec.y * summaryScale;
                       const baseSize = 40 * (dec.scale ?? 1);
                       const scaledSize = baseSize * summaryScale;
@@ -923,10 +1188,44 @@ export default function CakeCustomization() {
                 <ScrollView style={styles.pickupBody} showsVerticalScrollIndicator={false}>
                   {/* Custom cake summary */}
                   <View style={styles.pickupItemCard}>
-                    <View style={styles.pickupItemImage}>
-                      <View style={{ width: 80, height: 80, borderRadius: 8, backgroundColor: CREAM, alignItems: 'center', justifyContent: 'center' }}>
-                        <MaterialCommunityIcons name="cake-variant" size={40} color={MUTED_GRAY} />
-                      </View>
+                    <View
+                      style={[
+                        styles.pickupItemImage,
+                        { position: 'relative', overflow: 'hidden', backgroundColor: CREAM },
+                      ]}
+                    >
+                      {/* Base cake — shape-aware */}
+                      <SvgXml xml={baseCakeXml} width="100%" height="100%" />
+
+                      {/* Icing + decorations — reused from renderCanvas, scaled to 80px */}
+                      {placedDecorations.filter((d) => !isIcing(d.element)).map((dec) => {
+                        const previewScale = 80 / CANVAS_SIZE;
+                        const decSize = 40 * (dec.scale ?? 1) * previewScale;
+                        const x = dec.x * previewScale;
+                        const y = dec.y * previewScale;
+
+                        return (
+                          <View
+                            key={dec.id}
+                            style={{
+                              position: 'absolute',
+                              left: x - decSize / 2,
+                              top: y - decSize / 2,
+                              width: decSize,
+                              height: decSize,
+                            }}
+                            pointerEvents="none"
+                          >
+                            <SvgDecoration
+                              svgSource={dec.element.svg_source}
+                              imageUrl={getDecorationSource(dec.element.element_name, dec.element.image_url)}
+                              size={decSize}
+                              color={dec.color}
+                              colors={dec.colors}
+                            />
+                          </View>
+                        );
+                      })}
                     </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={styles.pickupItemName}>Custom Cake</Text>

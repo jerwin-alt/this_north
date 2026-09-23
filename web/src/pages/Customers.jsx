@@ -16,7 +16,7 @@ const SOFT_WHITE = '#FFF3D9';
 const getImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http')) return path;
-  const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://10.80.66.170:8000';
+  const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return `${baseUrl}${normalizedPath}`;
 };

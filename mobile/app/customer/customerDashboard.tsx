@@ -18,6 +18,7 @@ import {
   Dimensions,
   ImageBackground,
   StatusBar,
+   AppState, 
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,7 +34,15 @@ import { useAppStore } from "@/stores/appStore";
 import { useCartStore, CartItem } from "@/stores/cartStore";
 import SvgDecoration from '@/components/SvgDecoration';
 import { SvgXml } from 'react-native-svg';
-import { CAKE_BASE_XML } from '@/constants/cakeBase';
+import {
+  buildCakeSvg,
+  buildIcingSvg,
+  getIcingPosition,
+  getIcingColorFromName,
+  type CakeShape,
+} from '@/constants/cakeBase';
+import { LogBox } from 'react-native';
+LogBox.ignoreLogs(['Polling error:']);
 
 
 // ── Import QR Code image ──
@@ -54,6 +63,8 @@ const CANCELLED_COLOR = "#C75B5B";
 const REJECTED_COLOR = "#DC2626";
 
 const { width } = Dimensions.get("window");
+
+const CANVAS_SIZE = Math.min(width * 0.85, 400);
 
 // ── Helper functions ──
 
@@ -347,7 +358,7 @@ function getDecorationSource(elementName: string, imageUrl?: string) {
 const getImageUrl = (url: string | undefined): string | undefined => {
   if (!url) return undefined;
   if (url.startsWith("http")) return url;
-  return `http://10.80.66.170:8000${url}`;
+  return `http://10.90.129.170:8000${url}`;
 };
 
 
@@ -357,7 +368,42 @@ const getImageUrl = (url: string | undefined): string | undefined => {
 // ── Memoized Child Components ──
 const CakePreview = memo(({ design, size = 100 }: { design: any; size?: number }) => {
   const decorations = design?.decorations_with_elements || [];
-  const canvasSize = 400;
+
+  // Shape comes from the linked cake size. Default to round for legacy orders.
+  const shape: CakeShape = (design?.cake_size?.shape as CakeShape) || 'round';
+
+  // Tier count comes from the design row. Defaults to 1 for legacy orders.
+  const tierCount: number = design?.tiers ?? 1;
+
+  // Build a tierFrostings map from the icing entries
+  const tierFrostings: Record<number, { side?: string; top?: string }> = {};
+  decorations.forEach((dec: any) => {
+    if ((dec.element_type || '').toLowerCase() !== 'icing') return;
+    const tierIdx = dec.tier_index ?? 0;
+    const pos = getIcingPosition(dec.element_name || '');
+    const color = getIcingColorFromName(dec.element_name || '');
+    if (!tierFrostings[tierIdx]) tierFrostings[tierIdx] = {};
+    tierFrostings[tierIdx][pos] = color;
+  });
+
+  // Build the base cake SVG with icing colors baked in — correct z-order
+  const cakeXml = buildCakeSvg({ shape, tierCount, tierFrostings });
+
+  // Split icing (drawn full-canvas) from regular decorations.
+  // IMPORTANT: sort icings so SIDE renders first (behind) and TOP renders last (in front).
+  // Without this, a top-then-side placement order would have the side wall paint
+  // over most of the top ellipse, hiding the top frosting.
+  // const icings = decorations
+  //   .filter((d: any) => (d.element_type || '').toLowerCase() === 'icing')
+  //   .sort((a: any, b: any) => {
+  //     const pa = getIcingPosition(a.element_name || '') === 'side' ? 0 : 1;
+  //     const pb = getIcingPosition(b.element_name || '') === 'side' ? 0 : 1;
+  //     return pa - pb;
+  //   });
+  const normalDecs = decorations.filter(
+    (d: any) => (d.element_type || '').toLowerCase() !== 'icing'
+  );
+
   return (
     <View
       style={{
@@ -368,17 +414,50 @@ const CakePreview = memo(({ design, size = 100 }: { design: any; size?: number }
         position: 'relative',
       }}
     >
-      {/* Base cake — SVG (from 4.3) */}
-      <SvgXml xml={CAKE_BASE_XML} width="100%" height="100%" />
+      {/* ── Base cake — shape-aware ── */}
+      <SvgXml xml={cakeXml} width="100%" height="100%" />
 
-      {/* Decorations — SVG-aware, PNG fallback via getDecorationSource */}
-      {decorations.map((dec: any, idx: number) => {
-        const decSize = size * 0.4 * (dec.scale ?? 1);
-        const x = (dec.x / canvasSize) * size;
-        const y = (dec.y / canvasSize) * size;
+      {/* ── Icing decorations — full-canvas overlays ── */}
+      {/* {icings.map((dec: any, idx: number) => {
+        const position = getIcingPosition(dec.element_name || '');
+        const color = getIcingColorFromName(dec.element_name || '');
+        const icingXml = buildIcingSvg({
+          shape,
+          position,
+          color,
+          tierIndex: dec.tier_index ?? 0,
+          tierCount,
+        });
         return (
           <View
-            key={idx}
+            key={`icing-${idx}`}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+            }}
+            pointerEvents="none"
+          >
+            <SvgXml xml={icingXml} width="100%" height="100%" />
+          </View>
+        );
+      })} */}
+
+      {/* ── Regular draggable decorations — correct scale ── */}
+      {normalDecs.map((dec: any, idx: number) => {
+        const scaleFactor = dec.scale ?? 1;
+        // Base decoration is 40px in the 340px main canvas.
+        // Scale proportionally to whatever size this preview is.
+        const decSize = (40 / CANVAS_SIZE) * size * scaleFactor;
+        const x = (dec.x / CANVAS_SIZE) * size;
+        const y = (dec.y / CANVAS_SIZE) * size;
+        const source = getDecorationSource(dec.element_name, dec.image_url);
+
+        return (
+          <View
+            key={`dec-${idx}`}
             style={{
               position: 'absolute',
               left: x - decSize / 2,
@@ -389,7 +468,7 @@ const CakePreview = memo(({ design, size = 100 }: { design: any; size?: number }
           >
             <SvgDecoration
               svgSource={dec.svg_source}
-              imageUrl={getDecorationSource(dec.element_name, dec.image_url)}
+              imageUrl={source}
               size={decSize}
               color={dec.color}
               colors={dec.colors}
@@ -1047,48 +1126,61 @@ export default function CustomerDashboard() {
     }
   }, [refreshOrders]);
 
-  // ── Polling for notifications ──
+  // ── Polling for notifications (60s interval, pauses when app is backgrounded) ──
   useEffect(() => {
     let isMounted = true;
+    let currentAppState = AppState.currentState;
+    let backoffUntil = 0;
+
+    const appStateSub = AppState.addEventListener('change', (next) => {
+      currentAppState = next;
+    });
+
     const fetchActivityLogs = async () => {
       try {
         const res = await axios.get('/user/activity-logs', {
-          params: { limit: 20, type: 'order_status_updated' }
+          params: { limit: 20, type: 'order_status_updated' },
         });
         return res.data.logs || [];
-      } catch (err) {
-        console.error('Failed to fetch activity logs', err);
+      } catch {
         return [];
       }
     };
+
     const generateNotificationsFromOrders = async () => {
+      // Skip when app is backgrounded
+      if (currentAppState !== 'active') return;
+      // Skip if we're in a backoff window (after a 429)
+      if (Date.now() < backoffUntil) return;
+
       try {
-        const res = await axios.get("/customer/orders");
+        const res = await axios.get('/customer/orders');
         const latestOrders: Order[] = res.data.orders || [];
         const store = useNotificationStore.getState();
         const existingNotifs = store.notifications;
+
         latestOrders.forEach((order) => {
-          if (order.status === "pending") return;
-          let message = "";
+          if (order.status === 'pending') return;
+          let message = '';
           let type = order.status;
           switch (order.status) {
-            case "confirmed":
+            case 'confirmed':
               message = `Your order #${order.order_number} has been confirmed.`;
               break;
-            case "preparing":
+            case 'preparing':
               message = `Your order #${order.order_number} is now being prepared.`;
               break;
-            case "ready":
+            case 'ready':
               message = `Your order #${order.order_number} is ready for pickup.`;
               break;
-            case "completed":
+            case 'completed':
               message = `Your order #${order.order_number} has been completed.`;
               break;
-            case "cancelled":
-              if (order.notes && order.notes.includes("[REJECTED]:")) {
-                const reason = order.notes.replace(/\[REJECTED\]:\s*/, "");
+            case 'cancelled':
+              if (order.notes && order.notes.includes('[REJECTED]:')) {
+                const reason = order.notes.replace(/\[REJECTED\]:\s*/, '');
                 message = `Your order #${order.order_number} has been rejected. Reason: ${reason}`;
-                type = "rejected";
+                type = 'rejected';
               } else {
                 message = `Your order #${order.order_number} has been cancelled.`;
               }
@@ -1106,15 +1198,16 @@ export default function CustomerDashboard() {
             order_number: order.order_number,
             status: order.status,
             payment_status: order.payment_status,
-            message: message,
-            type: type,
+            message,
+            type,
             updated_at: timestamp,
           });
         });
+
         const logs = await fetchActivityLogs();
         logs.forEach((log: any) => {
           if (log.details && log.details.includes('pickup schedule')) {
-            const order = latestOrders.find(o => o.id === log.reference_id);
+            const order = latestOrders.find((o) => o.id === log.reference_id);
             if (!order) return;
             const message = log.details;
             const alreadyNotified = existingNotifs.some(
@@ -1126,23 +1219,33 @@ export default function CustomerDashboard() {
               order_number: order.order_number,
               status: 'schedule_updated',
               payment_status: order.payment_status,
-              message: message,
+              message,
               type: 'schedule_updated',
               updated_at: log.created_at,
             });
           }
         });
-      } catch (e) {
-        console.error("Polling error:", e);
+      } catch (e: any) {
+        // 429 → back off for 2 minutes before trying again
+        if (e?.response?.status === 429) {
+          backoffUntil = Date.now() + 2 * 60 * 1000;
+        }
+        // Silent — polling is best-effort
       }
     };
-    generateNotificationsFromOrders();
+
+    // First poll after a small delay (don't hit the API during mount spike)
+    const initialTimer = setTimeout(generateNotificationsFromOrders, 3000);
+
     const interval = setInterval(() => {
       if (isMounted) generateNotificationsFromOrders();
-    }, 5000);
+    }, 60000);   // ← 60 seconds instead of 5
+
     return () => {
       isMounted = false;
+      clearTimeout(initialTimer);
       clearInterval(interval);
+      appStateSub.remove();
     };
   }, []);
 
