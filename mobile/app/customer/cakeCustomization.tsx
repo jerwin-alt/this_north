@@ -63,12 +63,42 @@ const DECORATION_IMAGES: Record<string, any> = {
 // Fallback remote URLs
 // DELETE the entire FALLBACK_URLS constant.
 
+// const getDecorationSource = (elementName?: string, imageUrl?: string) => {
+//   const key = elementName?.toLowerCase().replace(/\s/g, '') || '';
+//   if (DECORATION_IMAGES[key]) return DECORATION_IMAGES[key];
+//   if (imageUrl && imageUrl.startsWith('http')) return { uri: imageUrl };
+//   return null;   // No wrong fallbacks — let SvgDecoration handle it
+// };
+
+
+const API_BASE_URL = "https://thisnorth-production-backend.up.railway.app";
+
+
+
+const resolveUrl = (url: string | null | undefined) => {
+  if (!url) return url;
+  if (url.startsWith('http')) return url;
+  return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
+
+
+
+
 const getDecorationSource = (elementName?: string, imageUrl?: string) => {
   const key = elementName?.toLowerCase().replace(/\s/g, '') || '';
   if (DECORATION_IMAGES[key]) return DECORATION_IMAGES[key];
-  if (imageUrl && imageUrl.startsWith('http')) return { uri: imageUrl };
-  return null;   // No wrong fallbacks — let SvgDecoration handle it
+  
+  if (imageUrl) {
+    if (imageUrl.startsWith('http')) return { uri: imageUrl };
+    // Prepend the Railway URL for relative paths
+    const separator = imageUrl.startsWith("/") ? "" : "/";
+    return { uri: `${API_BASE_URL}${separator}${imageUrl}` };
+  }
+  
+  return null;   
 };
+
 
 // ---- Helper to get image source ----
 // const getDecorationSource = (elementName: string, imageUrl?: string) => {
@@ -397,7 +427,13 @@ export default function CakeCustomization() {
     if (!elements || Object.keys(elements).length === 0) return;
     const all = Object.values(elements).flat();
     all.forEach((el) => {
-      if (el.svg_source) prefetchSvg(el.svg_source);
+      if (el.svg_source) {
+        // Resolve relative URLs to the Railway backend
+        const resolvedUrl = el.svg_source.startsWith('http')
+          ? el.svg_source
+          : `${API_BASE_URL}${el.svg_source.startsWith('/') ? '' : '/'}${el.svg_source}`;
+        prefetchSvg(resolvedUrl);
+      }
     });
   }, [elements]);
 
@@ -730,7 +766,7 @@ export default function CakeCustomization() {
                   ]}
                 >
                   <SvgDecoration
-                    svgSource={dec.element.svg_source}
+                    svgSource={resolveUrl(dec.element.svg_source)}
                     imageUrl={getDecorationSource(dec.element.element_name, dec.element.image_url)}
                     size={decSize}
                     color={dec.color}
@@ -793,7 +829,7 @@ export default function CakeCustomization() {
             <GestureDetector gesture={gesture}>
               <Animated.View style={styles.libraryItem}>
                 <SvgDecoration
-                  svgSource={item.svg_source}
+                  svgSource={resolveUrl(item.svg_source)} 
                   imageUrl={getDecorationSource(item.element_name, item.image_url)}
                   size={50}
                 />
@@ -1096,7 +1132,7 @@ export default function CakeCustomization() {
                           ]}
                         >
                           <SvgDecoration
-                            svgSource={dec.element.svg_source}
+                            svgSource={resolveUrl(dec.element.svg_source)}
                             imageUrl={getDecorationSource(dec.element.element_name, dec.element.image_url)}
                             size={scaledSize}
                             color={dec.color}
@@ -1217,7 +1253,7 @@ export default function CakeCustomization() {
                             pointerEvents="none"
                           >
                             <SvgDecoration
-                              svgSource={dec.element.svg_source}
+                              svgSource={resolveUrl(dec.element.svg_source)} 
                               imageUrl={getDecorationSource(dec.element.element_name, dec.element.image_url)}
                               size={decSize}
                               color={dec.color}
