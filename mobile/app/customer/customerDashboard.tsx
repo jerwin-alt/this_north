@@ -479,7 +479,7 @@ const CakePreview = memo(({ design, size = 100 }: { design: any; size?: number }
             }}
           >
             <SvgDecoration
-              svgSource={dec.svg_source}
+              svgSource={getImageUrl(dec.svg_source) ?? dec.svg_source}
               imageUrl={source}
               size={decSize}
               color={dec.color}
