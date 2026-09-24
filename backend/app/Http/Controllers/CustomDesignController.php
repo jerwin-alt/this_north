@@ -15,39 +15,41 @@ class CustomDesignController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'cake_size_id' => 'required|exists:cake_sizes,id',
+            'cake_size_id'   => 'required|exists:cake_sizes,id',
             'cake_flavor_id' => 'nullable|exists:cake_flavors,id',
-            'frosting_flavor' => 'nullable|string|max:100',
-            'tiers' => 'nullable|integer|min:1|max:3',
-            'design_name' => 'nullable|string|max:100',
-            'decorations' => 'nullable|array',
+            'frosting_flavor'=> 'nullable|string|max:100',
+            'tiers'          => 'nullable|integer|min:1|max:3',
+            'custom_flavor'  => 'nullable|string|max:255',
+            'design_name'    => 'nullable|string|max:100',
+            'decorations'    => 'nullable|array',
             'decorations.*.element_id' => 'required|exists:design_elements,id',
             'decorations.*.x' => 'required|numeric',
             'decorations.*.y' => 'required|numeric',
             'decorations.*.scale' => 'nullable|numeric|min:0.1|max:5',
             'decorations.*.color' => 'nullable|string|max:9',
             'decorations.*.colors' => 'nullable|array',
-            'decorations.*.tier_index' => 'nullable|integer|min:0|max:2',   // ← NEW
+            'decorations.*.tier_index' => 'nullable|integer|min:0|max:2',
             'special_instructions' => 'nullable|string',
             'total_price' => 'nullable|numeric|min:0',
         ]);
 
         $design = CustomDesign::create([
-            'user_id' => Auth::id(),
-            'cake_size_id' => $validated['cake_size_id'],
+            'user_id'        => Auth::id(),
+            'cake_size_id'   => $validated['cake_size_id'],
             'cake_flavor_id' => $validated['cake_flavor_id'] ?? null,
-            'frosting_flavor' => $validated['frosting_flavor'] ?? null,
-            'tiers' => $validated['tiers'] ?? 1,                        // ← NEW
-            'design_name' => $validated['design_name'] ?? null,
-            'design_data' => $validated['decorations'] ?? [],
+            'frosting_flavor'=> $validated['frosting_flavor'] ?? null,
+            'tiers'          => $validated['tiers'] ?? 1,
+            'custom_flavor'  => $validated['custom_flavor'] ?? 'custom',
+            'design_name'    => $validated['design_name'] ?? null,
+            'design_data'    => $validated['decorations'] ?? [],
             'special_instructions' => $validated['special_instructions'] ?? null,
-            'total_price' => $validated['total_price'] ?? 0,
-            'is_saved' => true,
+            'total_price'    => $validated['total_price'] ?? 0,
+            'is_saved'       => true,
         ]);
 
         return response()->json([
             'design_id' => $design->id,
-            'message' => 'Cake design saved successfully.',
+            'message'   => 'Cake design saved successfully.',
         ], 201);
     }
 

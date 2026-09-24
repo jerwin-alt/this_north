@@ -26,11 +26,30 @@ class SchemaRepairSeeder extends Seeder
         // ─── custom_designs repairs ──────────────────────────────
         if (Schema::hasTable('custom_designs')) {
             $cols = Schema::getColumnListing('custom_designs');
+
             Schema::table('custom_designs', function (Blueprint $table) use ($cols) {
-                if (!in_array('cake_flavor_id',  $cols, true)) $table->foreignId('cake_flavor_id')->nullable()->constrained('cake_flavors')->nullOnDelete();
-                if (!in_array('frosting_flavor', $cols, true)) $table->string('frosting_flavor')->nullable();
-                if (!in_array('tiers',           $cols, true)) $table->unsignedInteger('tiers')->default(1);
+                if (!in_array('cake_flavor_id',  $cols, true)) {
+                    $table->foreignId('cake_flavor_id')->nullable()->constrained('cake_flavors')->nullOnDelete();
+                }
+                if (!in_array('frosting_flavor', $cols, true)) {
+                    $table->string('frosting_flavor')->nullable();
+                }
+                if (!in_array('tiers',           $cols, true)) {
+                    $table->unsignedInteger('tiers')->default(1);
+                }
             });
+
+            // Force custom_flavor to be NULLABLE (MySQL raw — safe + idempotent)
+            try {
+                $colInfo = \DB::select("SHOW COLUMNS FROM custom_designs LIKE 'custom_flavor'");
+                if (!empty($colInfo) && strtoupper($colInfo[0]->Null) !== 'YES') {
+                    \DB::statement("ALTER TABLE custom_designs MODIFY custom_flavor VARCHAR(255) NULL");
+                    $this->command->info('✓ custom_flavor made nullable.');
+                }
+            } catch (\Exception $e) {
+                $this->command->warn('Could not alter custom_flavor: ' . $e->getMessage());
+            }
+
             $this->command->info('✓ custom_designs schema checked.');
         }
     }
