@@ -13,6 +13,11 @@ WORKDIR /var/www/html
 
 COPY . .
 
+# ── NEW: save uploads as a seed, then recreate the (empty) public folder ──
+RUN mv storage/app/public /var/www/html/storage-seed
+RUN mkdir -p storage/app/public
+# ── end NEW ──
+
 RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
 RUN chown -R www-data:www-data storage bootstrap/cache
