@@ -10,15 +10,14 @@ echo "  DB_HOST: ${DB_HOST:-<not set>}"
 echo "  DB_DATABASE: ${DB_DATABASE:-<not set>}"
 echo "──────────────────────────────────────────"
 
-# Seed volume from baked-in image on first boot
+# ─── Copy any missing files from the Docker image into the mounted volume ───
+# `cp -rn` = copy only if destination file doesn't exist, NEVER overwrite.
+# This is safe to run on EVERY boot — existing uploads are preserved.
 if [ -d /var/www/html/storage-seed ]; then
-    if [ -z "$(ls -A /var/www/html/storage/app/public 2>/dev/null)" ]; then
-        echo "Volume empty — seeding from baked-in files..."
-        cp -rn /var/www/html/storage-seed/* /var/www/html/storage/app/public/ 2>/dev/null || true
-        echo "Seed copy complete."
-    else
-        echo "Volume already has files — skipping file seed."
-    fi
+    echo "Syncing missing seed files into volume (never overwrites)..."
+    mkdir -p /var/www/html/storage/app/public
+    cp -rn /var/www/html/storage-seed/* /var/www/html/storage/app/public/ 2>/dev/null || true
+    echo "Sync complete."
 fi
 
 # Storage symlink
@@ -31,7 +30,7 @@ php artisan config:clear || true
 echo "Running migrations..."
 php artisan migrate --force || echo "⚠️  Migration failed — continuing anyway"
 
-# Run all seeders (idempotent — safe every boot)
+# Seeders (all three are idempotent)
 echo "Running database seeders..."
 php artisan db:seed --force || echo "⚠️  Seeding failed — continuing anyway"
 echo "Seeding complete."
