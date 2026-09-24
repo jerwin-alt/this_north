@@ -52,5 +52,48 @@ class SchemaRepairSeeder extends Seeder
 
             $this->command->info('✓ custom_designs schema checked.');
         }
+
+
+
+
+                // ─── order_items repairs ──────────────────────────────
+        if (Schema::hasTable('order_items')) {
+            try {
+                // 1. Check if menu_id is currently NOT NULL
+                $colInfo = \DB::select("SHOW COLUMNS FROM order_items WHERE Field = 'menu_id'");
+
+                if (!empty($colInfo) && strtoupper($colInfo[0]->Null) !== 'YES') {
+                    // 2. Drop any existing FK constraint on menu_id
+                    $fkList = \DB::select("
+                        SELECT CONSTRAINT_NAME
+                        FROM information_schema.KEY_COLUMN_USAGE
+                        WHERE TABLE_SCHEMA = DATABASE()
+                        AND TABLE_NAME = 'order_items'
+                        AND COLUMN_NAME = 'menu_id'
+                        AND REFERENCED_TABLE_NAME IS NOT NULL
+                    ");
+
+                    foreach ($fkList as $fk) {
+                        \DB::statement("ALTER TABLE order_items DROP FOREIGN KEY `{$fk->CONSTRAINT_NAME}`");
+                    }
+
+                    // 3. Make the column nullable
+                    \DB::statement("ALTER TABLE order_items MODIFY menu_id BIGINT UNSIGNED NULL");
+
+                    // 4. Re-add the FK with ON DELETE SET NULL
+                    \DB::statement("
+                        ALTER TABLE order_items
+                        ADD CONSTRAINT order_items_menu_id_foreign
+                        FOREIGN KEY (menu_id) REFERENCES menu(id) ON DELETE SET NULL
+                    ");
+
+                    $this->command->info('✓ order_items.menu_id made nullable with SET NULL FK.');
+                } else {
+                    $this->command->info('✓ order_items.menu_id is already nullable.');
+                }
+            } catch (\Exception $e) {
+                $this->command->warn('Could not alter order_items.menu_id: ' . $e->getMessage());
+            }
+        }
     }
 }
