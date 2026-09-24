@@ -1,2 +1,16 @@
 *
 !.gitignore
+!id_images/
+!id_images/**
+!payment_proofs/
+!payment_proofs/**
+!rider_photos/
+!rider_photos/**
+!order_progress/
+!order_progress/**
+!pickup_proof/
+!pickup_proof/**
+!menu/
+!menu/**
+!decorations/
+!decorations/**
