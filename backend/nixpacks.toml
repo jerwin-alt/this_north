@@ -1,0 +1,17 @@
+# backend/nixpacks.toml
+[phases.setup]
+nixPkgs = ["php82", "php82Extensions.pdo_mysql", "php82Extensions.mysqli"]
+
+[phases.build]
+cmds = [
+    "composer install --no-dev --optimize-autoloader",
+    "php artisan config:clear",
+    "php artisan config:cache",
+    "php artisan route:cache",
+    "php artisan view:cache",
+    "php artisan storage:link --force",
+    "php artisan migrate --force"
+]
+
+[start]
+cmd = "php artisan serve --host=0.0.0.0 --port=$PORT"
