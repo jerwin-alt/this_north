@@ -9,13 +9,14 @@ class DatabaseSeeder extends Seeder {
 
         public function run(): void
     {
+        $this->call(SchemaRepairSeeder::class);
         $this->call(UsersTableSeeder::class);
         $this->call(CakeSizesSeeder::class);
         $this->call(SvgDecorationsSeeder::class);
     }
 
 
-    
+
     // public function run() {
     //     // Default admin
     //     User::create([
