@@ -82,44 +82,40 @@ export default function SvgDecoration({
   // ── Resolve the SVG source into a string ──
   // Inline XML → use directly.
   // HTTP URL   → check cache, else fetch once and cache.
-  useEffect(() => {
-    let cancelled = false;
-    setFailed(false);
+useEffect(() => {
+  let cancelled = false;
+  setFailed(false);
+  setSvgString(null);
 
-    if (!svgSource) {
-      setSvgString(null);
-      return;
+  const trySource = async (source: string): Promise<string | null> => {
+    if (!source.startsWith('http')) return source;
+    const cached = svgCache.get(source);
+    if (cached) return cached;
+    try {
+      const r = await fetch(source, { headers: { Accept: 'image/svg+xml,text/plain,*/*' } });
+      if (!r.ok) return null;
+      const text = await r.text();
+      // Validate it looks like SVG
+      if (!text.trim().startsWith('<svg') && !text.includes('<svg')) return null;
+      svgCache.set(source, text);
+      return text;
+    } catch {
+      return null;
     }
+  };
 
-    // Inline XML
-    if (!svgSource.startsWith('http')) {
-      setSvgString(svgSource);
-      return;
+  const resolve = async () => {
+    if (svgSource) {
+      const primary = await trySource(svgSource);
+      if (cancelled) return;
+      if (primary) { setSvgString(primary); return; }
     }
+    if (!cancelled) setFailed(true);
+  };
 
-    // Cached URL
-    const cached = svgCache.get(svgSource);
-    if (cached) {
-      setSvgString(cached);
-      return;
-    }
-
-    // Fetch once
-    fetch(svgSource)
-      .then((r) => (r.ok ? r.text() : Promise.reject(new Error('svg fetch failed'))))
-      .then((text) => {
-        if (cancelled) return;
-        svgCache.set(svgSource, text);
-        setSvgString(text);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [svgSource]);
+  resolve();
+  return () => { cancelled = true; };
+}, [svgSource]);
 
   // ── Apply tints ──
   // Only recomputes when the SVG string or the color inputs change.

@@ -74,12 +74,20 @@ const DECORATION_IMAGES: Record<string, any> = {
 const API_BASE_URL = "https://thisnorth-production-backend.up.railway.app";
 
 
-
-const resolveUrl = (url: string | null | undefined) => {
-  if (!url) return url;
-  if (url.startsWith('http')) return url;
+const resolveUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  // If already a full URL, trust it as-is
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  // Relative path — prepend the API host
   return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
 };
+
+
+// const resolveUrl = (url: string | null | undefined) => {
+//   if (!url) return url;
+//   if (url.startsWith('http')) return url;
+//   return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+// };
 
 
 

@@ -10,54 +10,28 @@ class SchemaRepairSeeder extends Seeder
 {
     public function run(): void
     {
-        if (!Schema::hasTable('design_elements')) {
-            $this->command->warn('design_elements table does not exist — skipping repair.');
-            return;
+        // ─── design_elements repairs ─────────────────────────────
+        if (Schema::hasTable('design_elements')) {
+            $cols = Schema::getColumnListing('design_elements');
+            Schema::table('design_elements', function (Blueprint $table) use ($cols) {
+                if (!in_array('image_url',      $cols, true)) $table->string('image_url')->nullable()->after('default_price');
+                if (!in_array('svg_url',        $cols, true)) $table->string('svg_url')->nullable();
+                if (!in_array('svg_code',       $cols, true)) $table->longText('svg_code')->nullable();
+                if (!in_array('supports_color', $cols, true)) $table->boolean('supports_color')->default(false);
+                if (!in_array('color_parts',    $cols, true)) $table->json('color_parts')->nullable();
+            });
+            $this->command->info('✓ design_elements schema checked.');
         }
 
-        $existingColumns = Schema::getColumnListing('design_elements');
-
-        $hasImageUrl      = in_array('image_url', $existingColumns, true);
-        $hasSvgUrl        = in_array('svg_url', $existingColumns, true);
-        $hasSvgCode       = in_array('svg_code', $existingColumns, true);
-        $hasSupportsColor = in_array('supports_color', $existingColumns, true);
-        $hasColorParts    = in_array('color_parts', $existingColumns, true);
-
-        Schema::table('design_elements', function (Blueprint $table) use (
-            $hasImageUrl,
-            $hasSvgUrl,
-            $hasSvgCode,
-            $hasSupportsColor,
-            $hasColorParts
-        ) {
-            if (!$hasImageUrl) {
-                $table->string('image_url')->nullable()->after('default_price');
-            }
-            if (!$hasSvgUrl) {
-                $table->string('svg_url')->nullable();
-            }
-            if (!$hasSvgCode) {
-                $table->longText('svg_code')->nullable();
-            }
-            if (!$hasSupportsColor) {
-                $table->boolean('supports_color')->default(false);
-            }
-            if (!$hasColorParts) {
-                $table->json('color_parts')->nullable();
-            }
-        });
-
-        $added = [];
-        if (!$hasImageUrl)      $added[] = 'image_url';
-        if (!$hasSvgUrl)        $added[] = 'svg_url';
-        if (!$hasSvgCode)       $added[] = 'svg_code';
-        if (!$hasSupportsColor) $added[] = 'supports_color';
-        if (!$hasColorParts)    $added[] = 'color_parts';
-
-        if (empty($added)) {
-            $this->command->info('✓ design_elements schema is already correct.');
-        } else {
-            $this->command->info('✓ Repaired design_elements — added: ' . implode(', ', $added));
+        // ─── custom_designs repairs ──────────────────────────────
+        if (Schema::hasTable('custom_designs')) {
+            $cols = Schema::getColumnListing('custom_designs');
+            Schema::table('custom_designs', function (Blueprint $table) use ($cols) {
+                if (!in_array('cake_flavor_id',  $cols, true)) $table->foreignId('cake_flavor_id')->nullable()->constrained('cake_flavors')->nullOnDelete();
+                if (!in_array('frosting_flavor', $cols, true)) $table->string('frosting_flavor')->nullable();
+                if (!in_array('tiers',           $cols, true)) $table->unsignedInteger('tiers')->default(1);
+            });
+            $this->command->info('✓ custom_designs schema checked.');
         }
     }
 }
