@@ -49,14 +49,28 @@ class DesignElement extends Model
 
     public function getSvgSourceAttribute(): ?string
     {
+        // 1. Prefer inline SVG if present
         if (!empty($this->svg_code)) {
             return $this->svg_code;
         }
+
         if (!empty($this->svg_url)) {
-            return str_starts_with($this->svg_url, 'http')
-                ? $this->svg_url
-                : url($this->svg_url);
+            // 2. If svg_url is already a full URL, extract ONLY the path
+            //    and rebuild it against the CURRENT APP_URL. This prevents
+            //    stale hosts (local IPs, old environments) from leaking out
+            //    to the deployed mobile/web clients.
+            if (preg_match('#^https?://[^/]+(/.*)?$#', $this->svg_url, $m)) {
+                $path = $m[1] ?? '';
+                if ($path === '') {
+                    return null;
+                }
+                return url($path);
+            }
+
+            // 3. Relative path → prefix with APP_URL
+            return url($this->svg_url);
         }
+
         return null;
     }
 }

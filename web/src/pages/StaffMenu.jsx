@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/auth-context';
 
+import { API_ORIGIN } from '../utils/apiBase';
+
 // ── Palette ──
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
@@ -24,12 +26,19 @@ const categoryIcons = {
 };
 
 // ── Helper for image URL ──
+// const getImageUrl = (path) => {
+//   if (!path) return null;
+//   if (path.startsWith('http')) return path;
+//   const base = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
+//   return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+// };
+
 const getImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http')) return path;
-  const base = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
-  return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+  return `${API_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`;
 };
+
 
 // ── Product image with fallback ──
 function ProductImage({ imageUrl, name }) {

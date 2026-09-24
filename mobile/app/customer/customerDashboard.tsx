@@ -64,7 +64,8 @@ const REJECTED_COLOR = "#DC2626";
 
 const { width } = Dimensions.get("window");
 
-const CANVAS_SIZE = Math.min(width * 0.85, 400);
+// Canonical reference — matches SVG viewBox and stored decoration coords.
+const CANVAS_SIZE = 400;
 
 // ── Helper functions ──
 

@@ -53,7 +53,7 @@ const baseURL = import.meta.env.VITE_API_URL || 'https://thisnorth-production-ba
 const axios = axiosClient.create({
   baseURL: baseURL, // Using the variable we just defined
   headers: {
-    "Content-Type": "application/json",
+    // "Content-Type": "application/json",
     "Accept": "application/json",
   },
 });

@@ -9,6 +9,9 @@ import {
 import { useLocation } from 'react-router-dom';   // add
 import SvgDecorationWeb from '../components/SvgDecorationWeb';
 import strawberryImage from '../assets/CUSTOMIZE_CAKE5.jpg';
+import CakePreviewShared from '../components/CakePreviewShared';
+
+import { API_ORIGIN } from '../utils/apiBase';
 
 
 const SAGE = '#4F5F52';
@@ -17,7 +20,9 @@ const MUTED_GRAY = '#A6A29A';
 
 
 
-const API_BASE_URL = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
+// const API_BASE_URL = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
+
+const API_BASE_URL = API_ORIGIN;
 
 const getFullImageUrl = (path) => {
   if (!path) return null;
@@ -33,86 +38,86 @@ function getFallbackUrl(elementName) {
 }
 
 
-function CakePreview({ design, size = 80 }) {
-  const decorations = design?.decorations_with_elements || [];
-  const canvasSize = 400;
-  if (!decorations || decorations.length === 0) {
-    return (
-      <div
-        style={{
-          width: size,
-          height: size,
-          borderRadius: '8px',
-          background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '1rem',
-          fontWeight: 700,
-          color: '#fff',
-          flexShrink: 0,
-        }}
-      >
-        🎂
-      </div>
-    );
-  }
+// function CakePreview({ design, size = 80 }) {
+//   const decorations = design?.decorations_with_elements || [];
+//   const canvasSize = 400;
+//   if (!decorations || decorations.length === 0) {
+//     return (
+//       <div
+//         style={{
+//           width: size,
+//           height: size,
+//           borderRadius: '8px',
+//           background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+//           display: 'flex',
+//           alignItems: 'center',
+//           justifyContent: 'center',
+//           fontSize: '1rem',
+//           fontWeight: 700,
+//           color: '#fff',
+//           flexShrink: 0,
+//         }}
+//       >
+//         🎂
+//       </div>
+//     );
+//   }
 
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        position: 'relative',
-        overflow: 'hidden',
-        borderRadius: '8px',
-        border: `1.5px solid rgba(166,162,154,0.2)`,
-        background: '#f5f0ea',
-        flexShrink: 0,
-      }}
-    >
-      <img
-        src="/cake-base.svg"
-        alt="Cake base"
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-        }}
-        onError={(e) => (e.target.style.display = 'none')}
-      />
-      {decorations.map((dec, idx) => {
-        const decSize = size * 0.45 * (dec.scale ?? 1);
-        const x = (dec.x / canvasSize) * size;
-        const y = (dec.y / canvasSize) * size;
-        return (
-          <div
-            key={idx}
-            style={{
-              position: 'absolute',
-              left: x - decSize / 2,
-              top: y - decSize / 2,
-              width: decSize,
-              height: decSize,
-              pointerEvents: 'none',
-            }}
-          >
-            <SvgDecorationWeb
-              svgSource={dec.svg_source}
-              imageUrl={getFullImageUrl(dec.image_url)}
-              fallbackUrl={getFallbackUrl(dec.element_name)}
-              size={decSize}
-              color={dec.color}
-              colors={dec.colors}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+//   return (
+//     <div
+//       style={{
+//         width: size,
+//         height: size,
+//         position: 'relative',
+//         overflow: 'hidden',
+//         borderRadius: '8px',
+//         border: `1.5px solid rgba(166,162,154,0.2)`,
+//         background: '#f5f0ea',
+//         flexShrink: 0,
+//       }}
+//     >
+//       <img
+//         src="/cake-base.svg"
+//         alt="Cake base"
+//         style={{
+//           position: 'absolute',
+//           inset: 0,
+//           width: '100%',
+//           height: '100%',
+//           objectFit: 'contain',
+//         }}
+//         onError={(e) => (e.target.style.display = 'none')}
+//       />
+//       {decorations.map((dec, idx) => {
+//         const decSize = size * 0.45 * (dec.scale ?? 1);
+//         const x = (dec.x / canvasSize) * size;
+//         const y = (dec.y / canvasSize) * size;
+//         return (
+//           <div
+//             key={idx}
+//             style={{
+//               position: 'absolute',
+//               left: x - decSize / 2,
+//               top: y - decSize / 2,
+//               width: decSize,
+//               height: decSize,
+//               pointerEvents: 'none',
+//             }}
+//           >
+//             <SvgDecorationWeb
+//               svgSource={dec.svg_source}
+//               imageUrl={getFullImageUrl(dec.image_url)}
+//               fallbackUrl={getFallbackUrl(dec.element_name)}
+//               size={decSize}
+//               color={dec.color}
+//               colors={dec.colors}
+//             />
+//           </div>
+//         );
+//       })}
+//     </div>
+//   );
+// }
 
 
 
@@ -703,7 +708,22 @@ export default function StaffSchedule() {
                           <div key={item.id} className="order-item">
                             <div className="order-item-thumb">
                               {isCustom ? (
-                                <CakePreview design={item.custom_design} size={80} />
+                                <CakePreviewShared
+                                  design={item.custom_design}
+                                  size={80}
+                                  getFullImageUrl={getFullImageUrl}
+                                  getFallbackUrl={getFallbackUrl}
+                                  emptyState={
+                                    <div style={{
+                                      width: 80, height: 80, borderRadius: 8,
+                                      background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      fontSize: '1rem', fontWeight: 700, color: '#fff',
+                                    }}>
+                                      🎂
+                                    </div>
+                                  }
+                                />
                               ) : imgUrl ? (
                                 <img
                                   src={getFullImageUrl(imgUrl)}

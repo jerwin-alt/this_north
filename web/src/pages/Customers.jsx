@@ -7,19 +7,21 @@ import {
 } from 'lucide-react';
 import axios from '/api/axios';
 
+import { getFullImageUrl } from '../utils/apiBase';
+
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
 const MUTED_GRAY = '#A6A29A';
 const SOFT_WHITE = '#FFF3D9';
 
 // Helper to build full image URL – uses the same base URL as your API
-const getImageUrl = (path) => {
-  if (!path) return null;
-  if (path.startsWith('http')) return path;
-  const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${baseUrl}${normalizedPath}`;
-};
+// const getImageUrl = (path) => {
+//   if (!path) return null;
+//   if (path.startsWith('http')) return path;
+//   const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
+//   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+//   return `${baseUrl}${normalizedPath}`;
+// };
 
 // InfoItem component for consistent detail display
 function InfoItem({ label, value }) {
@@ -392,7 +394,7 @@ export default function Customers() {
                             )}
                             {customer.image && (
                               <a
-                                href={getImageUrl(customer.image)}
+                                href={getFullImageUrl(customer.image)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{ display: 'flex', alignItems: 'center', gap: 4, color: SAGE, fontSize: '0.7rem', marginTop: 2 }}
@@ -539,7 +541,7 @@ export default function Customers() {
                 {selectedCustomer.image ? (
                   <div>
                     <img
-                      src={getImageUrl(selectedCustomer.image) || ''}
+                      src={getFullImageUrl(selectedCustomer.image) || ''}
                       alt="Customer ID"
                       style={{
                         maxWidth: '100%',

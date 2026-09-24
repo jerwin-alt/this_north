@@ -83,8 +83,6 @@ const resolveUrl = (url: string | null | undefined) => {
 
 
 
-
-
 const getDecorationSource = (elementName?: string, imageUrl?: string) => {
   const key = elementName?.toLowerCase().replace(/\s/g, '') || '';
   if (DECORATION_IMAGES[key]) return DECORATION_IMAGES[key];
@@ -326,15 +324,21 @@ export default function CakeCustomization() {
       const inside = relX >= 0 && relX <= width && relY >= 0 && relY <= height;
       if (!inside) { resetDrag(); return; }
 
-      // Frostings snap to a fixed position (they cover the whole canvas anyway)
-      const clampedX = icing ? 0 : Math.max(0, Math.min(relX, width));
-      const clampedY = icing ? 0 : Math.max(0, Math.min(relY, height));
+      // Normalize to a canonical 400×400 space so every renderer
+      // (mobile customization, mobile CakePreview, web) interprets
+      // the same stored coordinates the same way.
+      const canonicalX = icing
+        ? 0
+        : (Math.max(0, Math.min(relX, width)) / width) * 400;
+      const canonicalY = icing
+        ? 0
+        : (Math.max(0, Math.min(relY, height)) / height) * 400;
 
       const newDec: PlacedDecoration = {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         elementId: element.id,
-        x: clampedX,
-        y: clampedY,
+        x: canonicalX,
+        y: canonicalY,
         tierIndex: icing ? activeTierIndexRef.current : undefined,
         element,
       };
@@ -356,7 +360,7 @@ export default function CakeCustomization() {
         }
         // Regular decoration — avoid exact-position duplicates
         const exists = prev.some(d =>
-          d.elementId === element.id && d.x === clampedX && d.y === clampedY
+          d.elementId === element.id && d.x === canonicalX && d.y === canonicalY
         );
         if (exists) return prev;
         return [...prev, newDec];
@@ -377,10 +381,10 @@ export default function CakeCustomization() {
       const relY = absY - pageY;
       const inside = relX >= 0 && relX <= width && relY >= 0 && relY <= height;
       if (inside) {
-        const clampedX = Math.max(0, Math.min(relX, width));
-        const clampedY = Math.max(0, Math.min(relY, height));
+        const canonicalX = (Math.max(0, Math.min(relX, width)) / width) * 400;
+        const canonicalY = (Math.max(0, Math.min(relY, height)) / height) * 400;
         safeSetPlacedDecorations(prev =>
-          prev.map(d => d.id === decId ? { ...d, x: clampedX, y: clampedY } : d)
+          prev.map(d => d.id === decId ? { ...d, x: canonicalX, y: canonicalY } : d)
         );
       }
       resetDrag();
@@ -670,7 +674,8 @@ export default function CakeCustomization() {
   const onSummaryLayout = (event: LayoutChangeEvent) => {
     const { width: w } = event.nativeEvent.layout;
     if (w > 0) {
-      const scale = w / CANVAS_SIZE;
+      // dec.x / dec.y are canonical (0..400), so scale by w/400.
+      const scale = w / 400;
       setSummaryScale(scale);
     }
   };
@@ -750,16 +755,20 @@ export default function CakeCustomization() {
 
           {/* ── Regular decorations ── */}
           {decorations.filter((d) => !isIcing(d.element)).map((dec) => {
+            // ── Regular decorations ──
             const gesture = createMoveGesture(dec);
             const decSize = 40 * (dec.scale ?? 1);
+            // dec.x / dec.y are canonical (0..400). Convert to pixels for display.
+            const displayX = (dec.x / 400) * CANVAS_SIZE;
+            const displayY = (dec.y / 400) * CANVAS_SIZE;
             return (
               <GestureDetector key={dec.id} gesture={gesture}>
                 <Animated.View
                   style={[
                     styles.placedDecoration,
                     {
-                      left: dec.x - decSize / 2,
-                      top: dec.y - decSize / 2,
+                      left: displayX - decSize / 2,
+                      top: displayY - decSize / 2,
                       width: decSize,
                       height: decSize,
                     },
@@ -1235,7 +1244,7 @@ export default function CakeCustomization() {
 
                       {/* Icing + decorations — reused from renderCanvas, scaled to 80px */}
                       {placedDecorations.filter((d) => !isIcing(d.element)).map((dec) => {
-                        const previewScale = 80 / CANVAS_SIZE;
+                        const previewScale = 80 / 400;
                         const decSize = 40 * (dec.scale ?? 1) * previewScale;
                         const x = dec.x * previewScale;
                         const y = dec.y * previewScale;

@@ -11,6 +11,8 @@ import {
 // import cakeBackground from '../assets/CUSTOMIZE_CAKE7_YES.png';
 import strawberryImage from '../assets/CUSTOMIZE_CAKE5.jpg';
 import SvgDecorationWeb from '../components/SvgDecorationWeb';
+import CakePreviewShared from '../components/CakePreviewShared';
+import { API_ORIGIN } from '../utils/apiBase';
 
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
@@ -56,7 +58,8 @@ const formatShortDate = (dateStr) => {
   });
 };
 
-const API_BASE_URL = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
+// const API_BASE_URL = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
+const API_BASE_URL = API_ORIGIN;
 const getFullImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith('http')) return path;
@@ -70,55 +73,55 @@ function getFallbackUrl(elementName) {
   return null;   // No more wrong Flaticon icons
 }
 
-function CakePreviewWeb({ design, size = 150 }) {
-  const decorations = design?.decorations_with_elements || [];
-  const canvasSize = 400;
-  if (!decorations || decorations.length === 0) {
-    return (
-      <div style={{ width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f0ea', borderRadius: 8, border: '1px solid #ddd', color: MUTED_GRAY, fontSize: '0.8rem' }}>
-        No decorations
-      </div>
-    );
-  }
-  return (
-    <div style={{ width: size, height: size, position: 'relative', overflow: 'hidden', borderRadius: 8, background: '#f5f0ea', border: '1px solid #ddd' }}>
-      {/* Base cake — SVG from public/ */}
-      <img
-        src="/cake-base.svg"
-        alt="Cake base"
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
-        onError={(e) => (e.target.style.display = 'none')}
-      />
-      {decorations.map((dec, idx) => {
-        const decSize = size * 0.4 * (dec.scale ?? 1);
-        const x = (dec.x / canvasSize) * size;
-        const y = (dec.y / canvasSize) * size;
-        return (
-          <div
-            key={idx}
-            style={{
-              position: 'absolute',
-              left: x - decSize / 2,
-              top: y - decSize / 2,
-              width: decSize,
-              height: decSize,
-              pointerEvents: 'none',
-            }}
-          >
-            <SvgDecorationWeb
-              svgSource={dec.svg_source}
-              imageUrl={getFullImageUrl(dec.image_url)}
-              fallbackUrl={getFallbackUrl(dec.element_name)}
-              size={decSize}
-              color={dec.color}
-              colors={dec.colors}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+// function CakePreviewWeb({ design, size = 150 }) {
+//   const decorations = design?.decorations_with_elements || [];
+//   const canvasSize = 400;
+//   if (!decorations || decorations.length === 0) {
+//     return (
+//       <div style={{ width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f0ea', borderRadius: 8, border: '1px solid #ddd', color: MUTED_GRAY, fontSize: '0.8rem' }}>
+//         No decorations
+//       </div>
+//     );
+//   }
+//   return (
+//     <div style={{ width: size, height: size, position: 'relative', overflow: 'hidden', borderRadius: 8, background: '#f5f0ea', border: '1px solid #ddd' }}>
+//       {/* Base cake — SVG from public/ */}
+//       <img
+//         src="/cake-base.svg"
+//         alt="Cake base"
+//         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
+//         onError={(e) => (e.target.style.display = 'none')}
+//       />
+//       {decorations.map((dec, idx) => {
+//         const decSize = size * 0.4 * (dec.scale ?? 1);
+//         const x = (dec.x / canvasSize) * size;
+//         const y = (dec.y / canvasSize) * size;
+//         return (
+//           <div
+//             key={idx}
+//             style={{
+//               position: 'absolute',
+//               left: x - decSize / 2,
+//               top: y - decSize / 2,
+//               width: decSize,
+//               height: decSize,
+//               pointerEvents: 'none',
+//             }}
+//           >
+//             <SvgDecorationWeb
+//               svgSource={dec.svg_source}
+//               imageUrl={getFullImageUrl(dec.image_url)}
+//               fallbackUrl={getFallbackUrl(dec.element_name)}
+//               size={decSize}
+//               color={dec.color}
+//               colors={dec.colors}
+//             />
+//           </div>
+//         );
+//       })}
+//     </div>
+//   );
+// }
 
 // ── Main StaffOrders ──
 export default function StaffOrders() {
@@ -999,7 +1002,17 @@ export default function StaffOrders() {
                         const design = item.custom_design;
                         return (
                           <div key={idx} className="mt-4">
-                            <CakePreviewWeb design={design} size={300} />
+                            <CakePreviewShared
+                              design={viewOrderModal.order.items.find(i => i.cake_type === 'custom')?.custom_design}
+                              size={300}
+                              getFullImageUrl={getFullImageUrl}
+                              getFallbackUrl={getFallbackUrl}
+                              emptyState={
+                                <div className="w-full max-w-[300px] aspect-square flex items-center justify-center bg-gray-100 rounded-lg text-gray-400 text-sm">
+                                  No custom design
+                                </div>
+                              }
+                            />
                             <div className="mt-3 p-3 rounded-lg" style={{ background: CREAM }}>
                               <p style={{ fontWeight: 600, color: SAGE, marginBottom: 4 }}>
                                 Custom Cake × {item.quantity}

@@ -6,6 +6,8 @@ import {
   Coffee, Sparkles, Sandwich, Cookie, Cake
 } from 'lucide-react';
 
+import { getFullImageUrl } from '../utils/apiBase';
+
 // Color palette (same as admin)
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
@@ -270,7 +272,8 @@ export default function StaffProducts() {
                 <div style={{ aspectRatio: '4/3', background: CREAM, position: 'relative', overflow: 'hidden' }}>
                   {product.image_url ? (
                     <img
-                      src={product.image_url.startsWith('http') ? product.image_url : `http://10.90.129.170:8000${product.image_url}`}
+                      // src={product.image_url.startsWith('http') ? product.image_url : `http://10.90.129.170:8000${product.image_url}`}
+                      src={getFullImageUrl(product.image_url)}
                       alt={product.name}
                       className="product-card-img w-full h-full object-cover"
                     />
