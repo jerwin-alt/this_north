@@ -438,6 +438,40 @@ class AdminMenuController extends Controller
         }
 
 
+
+        // ── NEW: Order Type filter ──
+        $orderTypeFilter = $request->input('order_type_filter', 'all');
+        if ($orderTypeFilter !== 'all') {
+            // Find orders matching the order-type filter
+            $orderIds = \App\Models\Order::query()
+                ->when($orderTypeFilter === 'walk_in',    fn($q) => $q->whereNull('customer_id'))
+                ->when($orderTypeFilter === 'online',     fn($q) => $q->whereNotNull('customer_id'))
+                ->when($orderTypeFilter === 'custom_cake', fn($q) =>
+                    $q->whereHas('items', fn($sub) => $sub->where('cake_type', 'custom'))
+                )
+                ->pluck('id');
+
+            // Menus sold in those orders
+            $menuIds = \App\Models\OrderItem::whereIn('order_id', $orderIds)
+                ->whereNotNull('menu_id')
+                ->pluck('menu_id')
+                ->unique()
+                ->values()
+                ->toArray();
+
+            if (empty($menuIds)) {
+                // No matching menus → no transactions
+                $query->whereRaw('1 = 0');
+            } else {
+                // Restrict to those menus AND only stock deductions (sold)
+                $query->whereIn('menu.id', $menuIds)
+                      ->where('user_activity_logs.details', 'like', 'Deducted stock%');
+            }
+        }
+
+
+        
+
         $logs = $query->orderBy('user_activity_logs.created_at', 'desc')->paginate($perPage);
 
         $transactions = $logs->map(function ($log) {

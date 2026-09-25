@@ -27,12 +27,29 @@
 import axiosClient from "axios";
 import { getToken } from "@/services/auth-storage";
 
+
+
+// const axios = axiosClient.create({
+//   baseURL: "http://10.90.129.170:8000/api",  
+//   headers: { Accept: "application/json" },
+// });
+
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL 
+  || "https://thisnorth-production-backend.up.railway.app";
+
 const axios = axiosClient.create({
-  baseURL: "https://thisnorth-production-backend.up.railway.app/api",
-  headers: {
-    Accept: "application/json",
-  },
+  baseURL: `${API_BASE_URL}/api`,
+  headers: { Accept: "application/json" },
 });
+
+
+// const axios = axiosClient.create({
+//   baseURL: "https://thisnorth-production-backend.up.railway.app/api",
+//   headers: {
+//     Accept: "application/json",
+//   },
+// });
 
 axios.interceptors.request.use(async (req) => {
   const token = await getToken();

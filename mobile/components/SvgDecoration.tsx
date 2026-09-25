@@ -2,8 +2,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Image, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 
+
+// const API_BASE_URL = 'http://10.90.129.170:8000';   // ← change from Railway
+
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL 
+  || 'https://thisnorth-production-backend.up.railway.app';
+
+  
 // Same base URL used everywhere else in the app
-const API_BASE_URL = 'https://thisnorth-production-backend.up.railway.app';
+// const API_BASE_URL = 'https://thisnorth-production-backend.up.railway.app';
 
 // Module-level cache — SVG fetched once per URL, reused everywhere
 const svgCache = new Map<string, string>();

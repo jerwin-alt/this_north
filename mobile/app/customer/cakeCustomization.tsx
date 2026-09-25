@@ -71,8 +71,12 @@ const DECORATION_IMAGES: Record<string, any> = {
 // };
 
 
-const API_BASE_URL = "https://thisnorth-production-backend.up.railway.app";
+// const API_BASE_URL = "https://thisnorth-production-backend.up.railway.app";
 
+// const API_BASE_URL = "http://10.90.129.170:8000";   // ← change from Railway
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL 
+  || "https://thisnorth-production-backend.up.railway.app";
 
 const resolveUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;

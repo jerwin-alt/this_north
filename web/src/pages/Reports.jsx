@@ -8,7 +8,7 @@ import {
   Search, Filter, Calendar, ChevronDown,
   TrendingUp, DollarSign, Package, FileText, SlidersHorizontal,
   Loader, AlertCircle, ClipboardList, Box, UserCheck, Percent,
-  Printer, FileSpreadsheet
+  Printer, FileSpreadsheet, ShoppingBag
 } from 'lucide-react';
 
 // ── Palette ──
@@ -113,7 +113,7 @@ function PaginationControls({ currentPage, totalPages, onPageChange, perPage, on
 }
 
 /* ─────────── Sales section ─────────── */
-function SalesTransactionsSection({ transactions, loading, error, pagination, onPageChange, onPerPageChange }) {
+function SalesTransactionsSection({ transactions, loading, error, pagination, onPageChange, onPerPageChange, summary }) {
   return (
     <motion.div variants={fadeInUp} initial="hidden" animate="visible"
       className="report-section"
@@ -224,6 +224,55 @@ function SalesTransactionsSection({ transactions, loading, error, pagination, on
           <PaginationControls
             currentPage={pagination.currentPage} totalPages={pagination.totalPages}
             onPageChange={onPageChange} perPage={pagination.perPage} onPerPageChange={onPerPageChange} />
+        </div>
+      )}
+
+      {/* ─── Total Amount — reflects ALL filtered transactions, not just current page ─── */}
+      {!loading && !error && summary && (
+        <div
+          style={{
+            padding: '16px 24px 22px',
+            borderTop: '1.5px solid rgba(242,237,228,0.9)',
+            background: `linear-gradient(135deg, rgba(242,237,228,0.4), rgba(255,243,217,0.3))`,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <div>
+            <p style={{
+              fontSize: '0.7rem',
+              fontWeight: 700,
+              color: SAGE,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              margin: 0,
+            }}>
+              Total Amount
+            </p>
+            <p style={{
+              fontSize: '0.72rem',
+              color: MUTED_GRAY,
+              marginTop: 3,
+              marginBottom: 0,
+            }}>
+              Across all {summary.total_transactions || 0} filtered transaction{summary.total_transactions === 1 ? '' : 's'}
+            </p>
+          </div>
+          <span style={{
+            fontSize: '1.55rem',
+            fontWeight: 800,
+            color: SAGE,
+            letterSpacing: '-0.03em',
+            lineHeight: 1,
+          }}>
+            ₱{Number(summary.total_income || 0).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </span>
         </div>
       )}
     </motion.div>
@@ -477,6 +526,9 @@ export default function Reports() {
   const [selectedDay, setSelectedDay]       = useState('');
   const [selectedCashier, setSelectedCashier]   = useState('all');
   const [selectedDiscount, setSelectedDiscount] = useState('all');
+  const [selectedOrderType, setSelectedOrderType] = useState('all');   
+  const [activeTab, setActiveTab] = useState('sales'); // 'sales' | 'menu' | 'ingredient'
+
 
   // ─────────── CASHIERS ───────────
   const [cashiers, setCashiers]               = useState([]);
@@ -564,11 +616,13 @@ export default function Reports() {
   const handleDayChange       = (v) => { setSelectedDay(v);      resetAllPages(); };
   const handleCashierChange   = (v) => { setSelectedCashier(v);  resetAllPages(); };
   const handleDiscountChange  = (v) => { setSelectedDiscount(v); setSalesPage(1); };
+  const handleOrderTypeChange = (v) => { setSelectedOrderType(v); setSalesPage(1); };  // NEW
 
   const buildSharedParams = () => {
     const p = { year: selectedYear };
     if (debouncedSearch.trim()) p.search = debouncedSearch.trim();
     if (selectedCashier !== 'all') p.cashier_id = selectedCashier;
+    if (selectedOrderType !== 'all') p.order_type_filter = selectedOrderType; 
     if (period === 'monthly') p.month = selectedMonth;
     if (period === 'weekly' && selectedWeek) {
       p.week_start = selectedWeek;
@@ -617,7 +671,7 @@ export default function Reports() {
       setSalesLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterType, selectedYear, period, selectedMonth, selectedWeek, selectedDay, selectedCashier, selectedDiscount, debouncedSearch, salesPage, salesPerPage]);
+  }, [filterType, selectedYear, period, selectedMonth, selectedWeek, selectedDay, selectedCashier, selectedDiscount, selectedOrderType, debouncedSearch, salesPage, salesPerPage]);
 
   useEffect(() => { fetchSales(); }, [fetchSales]);
 
@@ -653,7 +707,7 @@ export default function Reports() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuFilter, selectedYear, period, selectedMonth, selectedWeek, selectedDay, selectedCashier, debouncedSearch, menuPage, menuPerPage]);
+  }, [menuFilter, selectedYear, period, selectedMonth, selectedWeek, selectedDay, selectedCashier, selectedOrderType, debouncedSearch, menuPage, menuPerPage]);
 
   /* ───── INGREDIENT fetch ───── */
   useEffect(() => {
@@ -687,7 +741,7 @@ export default function Reports() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ingredientFilter, selectedYear, period, selectedMonth, selectedWeek, selectedDay, selectedCashier, debouncedSearch, ingredientPage, ingredientPerPage]);
+  }, [ingredientFilter, selectedYear, period, selectedMonth, selectedWeek, selectedDay, selectedCashier, selectedOrderType, debouncedSearch, ingredientPage, ingredientPerPage]);
 
   // ─── Pagination handlers ───
   const handleSalesPageChange = (p) => { if (p < 1 || p > salesTotalPages) return; setSalesPage(p); };
@@ -1099,6 +1153,24 @@ export default function Reports() {
                 transform: 'translateY(-50%)', color: MUTED_GRAY, pointerEvents: 'none' }} />
             </div>
 
+
+            {/* Order Type Filter */}
+            <div style={{ position: 'relative' }}>
+              <ShoppingBag size={14} style={{ position: 'absolute', left: 11, top: '50%',
+                transform: 'translateY(-50%)', color: MUTED_GRAY, pointerEvents: 'none' }} />
+              <select value={selectedOrderType} onChange={(e) => handleOrderTypeChange(e.target.value)}
+                className="filter-input w-full rounded-xl border text-sm appearance-none"
+                style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa',
+                  padding: '9px 32px 9px 32px' }}>
+                <option value="all">All Orders</option>
+                <option value="walk_in">Walk-In Orders</option>
+                <option value="online">Online Orders</option>
+                <option value="custom_cake">Custom Cake Orders</option>
+              </select>
+              <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%',
+                transform: 'translateY(-50%)', color: MUTED_GRAY, pointerEvents: 'none' }} />
+            </div>
+
             {/* Year */}
             <div style={{ position: 'relative' }}>
               <Calendar size={14} style={{ position: 'absolute', left: 11, top: '50%',
@@ -1219,44 +1291,100 @@ export default function Reports() {
           </div>
         </motion.div>
 
-        {/* 1. Sales Section */}
-        <SalesTransactionsSection
-          transactions={salesTransactions}
-          loading={salesLoading}
-          error={salesError}
-          pagination={{
-            currentPage: salesPage, totalPages: salesTotalPages,
-            perPage: salesPerPage, totalItems: salesTotalItems,
-          }}
-          onPageChange={handleSalesPageChange}
-          onPerPageChange={handleSalesPerPageChange}
-        />
 
-        {/* 2. Menu Section */}
-        <MenuTransactionsSection
-          transactions={menuTransactions}
-          loading={menuLoading}
-          error={menuError}
-          pagination={{
-            currentPage: menuPage, totalPages: menuTotalPages,
-            perPage: menuPerPage, totalItems: menuTotalItems,
+        {/* ─── Transaction Tabs ─── */}
+        <motion.div
+          variants={fadeInUp}
+          initial="hidden"
+          animate="visible"
+          className="print-hide"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 8,
+            marginBottom: 20,
           }}
-          onPageChange={handleMenuPageChange}
-          onPerPageChange={handleMenuPerPageChange}
-        />
+        >
+          {[
+            { key: 'sales',      label: 'Sales Transactions'      },
+            { key: 'menu',       label: 'Menu Transactions'       },
+            { key: 'ingredient', label: 'Ingredient Transactions' },
+          ].map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  padding: '11px 22px',
+                  borderRadius: 12,
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.18s ease',
+                  border: isActive ? '1.5px solid transparent' : '1.5px solid rgba(166,162,154,0.3)',
+                  background: isActive
+                    ? `linear-gradient(135deg, ${SAGE}, #3e4c42)`
+                    : '#fff',
+                  color: isActive ? '#fff' : SAGE,
+                  boxShadow: isActive
+                    ? '0 4px 14px rgba(79,95,82,0.28)'
+                    : '0 2px 8px rgba(79,95,82,0.06)',
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </motion.div>
 
-        {/* 3. Ingredient Section */}
-        <IngredientTransactionsSection
-          transactions={ingredientTransactions}
-          loading={ingredientLoading}
-          error={ingredientError}
-          pagination={{
-            currentPage: ingredientPage, totalPages: ingredientTotalPages,
-            perPage: ingredientPerPage, totalItems: ingredientTotalItems,
-          }}
-          onPageChange={handleIngredientPageChange}
-          onPerPageChange={handleIngredientPerPageChange}
-        />
+        {/* 1. Sales Section — visible only when Sales tab is active */}
+        {activeTab === 'sales' && (
+          <SalesTransactionsSection
+            transactions={salesTransactions}
+            loading={salesLoading}
+            error={salesError}
+            summary={summary}
+            pagination={{
+              currentPage: salesPage, totalPages: salesTotalPages,
+              perPage: salesPerPage, totalItems: salesTotalItems,
+            }}
+            onPageChange={handleSalesPageChange}
+            onPerPageChange={handleSalesPerPageChange}
+          />
+        )}
+
+        {/* 2. Menu Section — visible only when Menu tab is active */}
+        {activeTab === 'menu' && (
+          <MenuTransactionsSection
+            transactions={menuTransactions}
+            loading={menuLoading}
+            error={menuError}
+            pagination={{
+              currentPage: menuPage, totalPages: menuTotalPages,
+              perPage: menuPerPage, totalItems: menuTotalItems,
+            }}
+            onPageChange={handleMenuPageChange}
+            onPerPageChange={handleMenuPerPageChange}
+          />
+        )}
+
+        {/* 3. Ingredient Section — visible only when Ingredient tab is active */}
+        {activeTab === 'ingredient' && (
+          <IngredientTransactionsSection
+            transactions={ingredientTransactions}
+            loading={ingredientLoading}
+            error={ingredientError}
+            pagination={{
+              currentPage: ingredientPage, totalPages: ingredientTotalPages,
+              perPage: ingredientPerPage, totalItems: ingredientTotalItems,
+            }}
+            onPageChange={handleIngredientPageChange}
+            onPerPageChange={handleIngredientPerPageChange}
+          />
+        )}
       </div>
     </div>
   );

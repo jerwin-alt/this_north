@@ -144,6 +144,28 @@ class InventoryTransactionController extends Controller
             $query->where('created_by', (int) $cashierId);
         }
 
+
+
+        // ── NEW: Order Type filter ──
+        $orderTypeFilter = $request->input('order_type_filter', 'all');
+        if ($orderTypeFilter !== 'all') {
+            $orderIds = \App\Models\Order::query()
+                ->when($orderTypeFilter === 'walk_in',    fn($q) => $q->whereNull('customer_id'))
+                ->when($orderTypeFilter === 'online',     fn($q) => $q->whereNotNull('customer_id'))
+                ->when($orderTypeFilter === 'custom_cake', fn($q) =>
+                    $q->whereHas('items', fn($sub) => $sub->where('cake_type', 'custom'))
+                )
+                ->pluck('id');
+
+            if ($orderIds->isEmpty()) {
+                $query->whereRaw('1 = 0');
+            } else {
+                // Ingredient usage caused by orders has reference_type = 'order'
+                $query->where('reference_type', 'order')
+                      ->whereIn('reference_id', $orderIds);
+            }
+        }
+
         $transactions = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         return response()->json(['transactions' => $transactions]);

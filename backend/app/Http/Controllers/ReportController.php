@@ -14,6 +14,7 @@ class ReportController extends Controller
     public function index(Request $request)
     {
         $type      = $request->input('type', 'all');
+        $orderTypeFilter = $request->input('order_type_filter', 'all');  
         $search    = trim((string) $request->input('search', ''));
         $year      = (int) $request->input('year', now()->year);
         $period    = $request->input('period', 'whole');
@@ -82,6 +83,25 @@ class ReportController extends Controller
             // Customer orders have created_by = customer_id, so they are naturally excluded.
             $orderQuery->where('created_by', (int) $cashierId);
         }
+
+
+
+        // ── NEW: Order Type filter (Walk-In / Online / Custom Cake) ──
+        if ($orderTypeFilter === 'walk_in') {
+            // Staff-created orders: no linked customer
+            $orderQuery->whereNull('customer_id');
+        } elseif ($orderTypeFilter === 'online') {
+            // All customer-mobile orders (includes custom cakes)
+            $orderQuery->whereNotNull('customer_id');
+        } elseif ($orderTypeFilter === 'custom_cake') {
+            // Orders that contain at least one custom-cake item
+            $orderQuery->whereHas('items', function ($q) {
+                $q->where('cake_type', 'custom');
+            });
+        }
+        // 'all' → no additional filtering
+
+
 
         // ── NEW: Discount filter ──
         $discountFilter = $request->input('discount_filter', 'all');

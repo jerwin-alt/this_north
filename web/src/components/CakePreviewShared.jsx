@@ -70,6 +70,15 @@ export default function CakePreviewShared({
         const fallbackUrl =
           typeof getFallbackUrl === 'function' ? getFallbackUrl(dec.element_name) : null;
 
+        // ─── NEW: resolve relative /storage/... paths to full API URLs ───
+        // The backend returns svg_source as a relative path (e.g. /storage/decorations/cherry.svg).
+        // Without this, the browser resolves it against the FRONTEND origin
+        // (http://localhost:5173/storage/...) → 404 → decoration not rendered.
+        const svgSourceResolved =
+          dec.svg_source && typeof getFullImageUrl === 'function'
+            ? getFullImageUrl(dec.svg_source)
+            : dec.svg_source;
+
         return (
           <div
             key={idx}
@@ -83,7 +92,7 @@ export default function CakePreviewShared({
             }}
           >
             <SvgDecorationWeb
-              svgSource={dec.svg_source}
+              svgSource={svgSourceResolved}
               imageUrl={imageUrl}
               fallbackUrl={fallbackUrl}
               size={decSize}

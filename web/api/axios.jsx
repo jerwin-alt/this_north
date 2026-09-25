@@ -46,17 +46,34 @@
 import axiosClient from "axios";
 import { getToken } from "../services/auth-storage"; // ✅ Fixed path: step up from /api to /web, then into /services
 
-// Vite requires variables to start with VITE_. 
-// We provide a fallback to your production Railway URL just in case.
-const baseURL = import.meta.env.VITE_API_URL || 'https://thisnorth-production-backend.up.railway.app/api';
+
+
+// const baseURL =
+//   import.meta.env.VITE_API_URL ||
+//   "http://localhost:8000/api";   // ← change fallback
+
+
+const baseURL =
+  import.meta.env.VITE_API_URL ||
+  "https://thisnorth-production-backend.up.railway.app/api";
 
 const axios = axiosClient.create({
-  baseURL: baseURL, // Using the variable we just defined
-  headers: {
-    // "Content-Type": "application/json",
-    "Accept": "application/json",
-  },
+  baseURL,
+  headers: { Accept: "application/json" },
 });
+
+
+// Vite requires variables to start with VITE_. 
+// We provide a fallback to your production Railway URL just in case.
+// const baseURL = import.meta.env.VITE_API_URL || 'https://thisnorth-production-backend.up.railway.app/api';
+
+// const axios = axiosClient.create({
+//   baseURL: baseURL, // Using the variable we just defined
+//   headers: {
+
+//     "Accept": "application/json",
+//   },
+// });
 
 axios.interceptors.request.use(async (req) => {
   const token = await getToken();

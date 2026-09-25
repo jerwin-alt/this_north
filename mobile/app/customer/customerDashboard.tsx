@@ -368,8 +368,14 @@ const getImageUrl = (url: string | undefined): string | undefined => {
   if (!url) return undefined;
   if (url.startsWith("http")) return url;
   
+
+  // const API_BASE_URL = "http://10.90.129.170:8000";   // ← change from Railway
+
+  const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL 
+  || "https://thisnorth-production-backend.up.railway.app";
+
   // Use the Railway production URL instead of local IP
-  const API_BASE_URL = "https://thisnorth-production-backend.up.railway.app";
+  // const API_BASE_URL = "https://thisnorth-production-backend.up.railway.app";
   const separator = url.startsWith("/") ? "" : "/";
   return `${API_BASE_URL}${separator}${url}`;
 };

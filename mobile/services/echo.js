@@ -193,9 +193,19 @@ let echoInstance = null;
 // ─── Production endpoints ──────────────────────────────────────
 // Pull these from Expo's public env vars, or hardcode the
 // Railway values. They must match what your backend has.
+// const REVERB_KEY  = process.env.EXPO_PUBLIC_REVERB_APP_KEY  || 't34yzindehe8rurmywzi';
+// const REVERB_HOST = process.env.EXPO_PUBLIC_REVERB_HOST     || 'thisnorth-production-backend.up.railway.app';
+// const REVERB_PORT = Number(process.env.EXPO_PUBLIC_REVERB_PORT || 443);
+// const API_BASE    = process.env.EXPO_PUBLIC_API_URL || 'https://thisnorth-production-backend.up.railway.app';
+
+// const REVERB_HOST = process.env.EXPO_PUBLIC_REVERB_HOST || '10.90.129.170';
+// const REVERB_PORT = Number(process.env.EXPO_PUBLIC_REVERB_PORT || 8080);
+// const API_BASE    = process.env.EXPO_PUBLIC_API_URL || 'http://10.90.129.170:8000';
+
 const REVERB_KEY  = process.env.EXPO_PUBLIC_REVERB_APP_KEY  || 't34yzindehe8rurmywzi';
 const REVERB_HOST = process.env.EXPO_PUBLIC_REVERB_HOST     || 'thisnorth-production-backend.up.railway.app';
 const REVERB_PORT = Number(process.env.EXPO_PUBLIC_REVERB_PORT || 443);
+const REVERB_SCHEME = process.env.EXPO_PUBLIC_REVERB_SCHEME || 'https';   // ← NEW
 const API_BASE    = process.env.EXPO_PUBLIC_API_URL || 'https://thisnorth-production-backend.up.railway.app';
 
 export const initEcho = async () => {
@@ -205,15 +215,37 @@ export const initEcho = async () => {
     return null;
   }
 
-  const options = {
+  // const options = {
+  //   broadcaster: 'pusher',
+  //   key: REVERB_KEY,
+  //   cluster: 'mt1',                    // required by pusher-js even when self-hosting
+  //   wsHost: REVERB_HOST,
+  //   wsPort: REVERB_PORT,
+  //   wssPort: REVERB_PORT,
+  //   // forceTLS: true,                    // Railway is HTTPS
+  //   // forceTLS: false, 
+  //   forceTLS: !API_BASE.startsWith('http://'),  
+  //   encrypted: true,
+  //   enabledTransports: ['ws', 'wss'],
+  //   authEndpoint: `${API_BASE}/broadcasting/auth`,
+  //   auth: {
+  //     headers: {
+  //       Authorization: `Bearer ${token}`,
+  //       Accept: 'application/json',
+  //     },
+  //   },
+  // };
+
+
+    const options = {
     broadcaster: 'pusher',
     key: REVERB_KEY,
-    cluster: 'mt1',                    // required by pusher-js even when self-hosting
+    cluster: 'mt1',
     wsHost: REVERB_HOST,
     wsPort: REVERB_PORT,
     wssPort: REVERB_PORT,
-    forceTLS: true,                    // Railway is HTTPS
-    encrypted: true,
+    forceTLS: REVERB_SCHEME === 'https',
+    encrypted: REVERB_SCHEME === 'https',
     enabledTransports: ['ws', 'wss'],
     authEndpoint: `${API_BASE}/broadcasting/auth`,
     auth: {
