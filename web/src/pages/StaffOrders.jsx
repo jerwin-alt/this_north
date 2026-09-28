@@ -139,7 +139,7 @@ export default function StaffOrders() {
   const [viewOrderModal, setViewOrderModal] = useState({ show: false, order: null });
 
   // ── Image Preview Modal State ──
-  const [imagePreviewModal, setImagePreviewModal] = useState({ show: false, url: null });
+  const [imagePreviewModal, setImagePreviewModal] = useState({ show: false, url: null, design: null });
 
   // ── Pickup Proof Upload State ──
   const [selectedPickupFiles, setSelectedPickupFiles] = useState([]);
@@ -176,6 +176,7 @@ export default function StaffOrders() {
       estimated_cost: '',
       damage_type: 'spoilage',
       description: '',
+      items: [{ item_id: '', quantity: '', unit: '', estimated_cost: '' }],
     },
   });
   const [generalReportSubmitting, setGeneralReportSubmitting] = useState(false);
@@ -193,9 +194,9 @@ export default function StaffOrders() {
     customer_name: '',
     customer_phone: '',
     pickup_date: '',
-    pickup_time: '',
     notes: '',
-    items: [{ menu_id: '', quantity: 1 }],
+    price: '',
+    referenceImage: null,   // ← file object
   });
 
   const fetchOrders = async () => {
@@ -254,15 +255,26 @@ export default function StaffOrders() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await axios.post('/staff/orders', createForm);
+      const fd = new FormData();
+      fd.append('customer_name', createForm.customer_name);
+      if (createForm.customer_phone) fd.append('customer_phone', createForm.customer_phone);
+      fd.append('pickup_date', createForm.pickup_date);
+      if (createForm.notes) fd.append('notes', createForm.notes);
+      fd.append('price', createForm.price);
+      if (createForm.referenceImage) fd.append('reference_image', createForm.referenceImage);
+
+      await axios.post('/staff/orders/custom-cake', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
       setShowCreateModal(false);
       setCreateForm({
-        customer_name: '', customer_phone: '', pickup_date: '', pickup_time: '', notes: '',
-        items: [{ menu_id: '', quantity: 1 }],
+        customer_name: '', customer_phone: '', pickup_date: '',
+        notes: '', price: '', referenceImage: null,
       });
       fetchOrders();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to create order');
+      alert(err.response?.data?.message || 'Failed to create custom cake order');
     } finally {
       setSubmitting(false);
     }
@@ -431,6 +443,7 @@ export default function StaffOrders() {
         estimated_cost: '',
         damage_type: 'spoilage',
         description: '',
+        items: [{ item_id: '', quantity: '', unit: '', estimated_cost: '' }],
       },
     });
 
@@ -465,11 +478,77 @@ export default function StaffOrders() {
     }));
   };
 
+  // ── Batch mode helpers ──
+const addGeneralIngredientRow = () => {
+  setGeneralReportModal((m) => ({
+    ...m,
+    form: {
+      ...m.form,
+      items: [...(m.form.items || []), { item_id: '', quantity: '', unit: '', estimated_cost: '' }],
+    },
+  }));
+};
+
+  const removeGeneralIngredientRow = (idx) => {
+    setGeneralReportModal((m) => ({
+      ...m,
+      form: {
+        ...m.form,
+        items: m.form.items.filter((_, i) => i !== idx),
+      },
+    }));
+  };
+
+  const updateGeneralIngredientRow = (idx, field, value) => {
+    setGeneralReportModal((m) => {
+      const items = [...m.form.items];
+      items[idx] = { ...items[idx], [field]: value };
+      if (field === 'item_id' && value) {
+        const ing = m.ingredients.find((x) => x.id === Number(value));
+        if (ing) items[idx].unit = ing.unit || '';
+      }
+      return { ...m, form: { ...m.form, items } };
+    });
+  };
+
   const handleGeneralReportSubmit = async (e) => {
     e.preventDefault();
     const { form } = generalReportModal;
     setGeneralReportError('');
 
+    // ─── BATCH MODE (Ingredient only) ───
+    if (form.item_type === 'ingredient') {
+      const valid = form.items.every(
+        (it) => it.item_id && Number(it.quantity) > 0 && it.unit
+      );
+      if (!valid) {
+        setGeneralReportError('Please fill in all ingredient rows (ingredient, quantity, unit).');
+        return;
+      }
+
+      setGeneralReportSubmitting(true);
+      try {
+        await axios.post('/staff/lost-and-damages', {
+          items: form.items.map((it) => ({
+            item_id: Number(it.item_id),
+            quantity: Number(it.quantity),
+            unit: it.unit,
+            estimated_cost: Number(it.estimated_cost || 0),
+          })),
+          damage_type: form.damage_type,
+          description: form.description || null,
+        });
+        setGeneralReportModal((m) => ({ ...m, show: false }));
+        alert('Batch loss/damage report submitted. Waiting for admin approval.');
+      } catch (err) {
+        setGeneralReportError(err.response?.data?.message || 'Failed to submit report.');
+      } finally {
+        setGeneralReportSubmitting(false);
+      }
+      return;
+    }
+
+    // ─── SINGLE MODE (Product) — existing code continues ───
     if (!form.item_id) { setGeneralReportError('Please select an item.'); return; }
     if (!form.quantity || Number(form.quantity) <= 0) { setGeneralReportError('Quantity must be greater than zero.'); return; }
     if (!form.unit) { setGeneralReportError('Unit is required.'); return; }
@@ -655,7 +734,7 @@ export default function StaffOrders() {
               }}
             >
               <Plus size={16} strokeWidth={2.2} />
-              New Walk‑in Order
+              New Walk-In Custom Cake
             </button>
           </div>
         </div>
@@ -836,24 +915,66 @@ export default function StaffOrders() {
             </div>
             <form onSubmit={handleCreate} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Customer Name *</label><input type="text" value={createForm.customer_name} onChange={e => setCreateForm({...createForm, customer_name: e.target.value})} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} /></div>
-                <div><label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Phone (optional)</label><input type="text" value={createForm.customer_phone} onChange={e => setCreateForm({...createForm, customer_phone: e.target.value})} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} /></div>
-                <div><label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Pickup Date</label><input type="date" value={createForm.pickup_date} onChange={e => setCreateForm({...createForm, pickup_date: e.target.value})} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} /></div>
-                <div><label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Pickup Time</label><input type="time" value={createForm.pickup_time} onChange={e => setCreateForm({...createForm, pickup_time: e.target.value})} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} /></div>
-                <div className="md:col-span-2"><label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Notes</label><textarea value={createForm.notes} onChange={e => setCreateForm({...createForm, notes: e.target.value})} rows={2} className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm resize-none" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} /></div>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-2"><span className="text-xs font-semibold" style={{ color: SAGE }}>Items *</span><button type="button" onClick={addItemToCreate} className="text-xs flex items-center gap-1 px-3 py-1 rounded-lg" style={{ color: SAGE, background: 'rgba(79,95,82,0.08)' }}><Plus size={12} /> Add Item</button></div>
-                {createForm.items.map((item, idx) => (
-                  <div key={idx} className="flex items-center gap-3 mb-2">
-                    <select value={item.menu_id} onChange={e => updateItemCreate(idx, 'menu_id', e.target.value)} required className="flex-1 modal-input px-3 py-2 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }}><option value="">Select product</option>{menuItems.filter(m => m.is_active).map(m => (<option key={m.id} value={m.id}>{m.name} — ₱{parseFloat(m.base_price).toLocaleString()}</option>))}</select>
-                    <input type="number" min="1" value={item.quantity} onChange={e => updateItemCreate(idx, 'quantity', e.target.value)} required className="w-20 modal-input px-3 py-2 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
-                    <button type="button" onClick={() => removeItemFromCreate(idx)} className="p-1.5 rounded-lg" style={{ color: '#EF4444' }}><Trash2 size={14} /></button>
-                  </div>
-                ))}
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Customer Name *</label>
+                  <input type="text" value={createForm.customer_name}
+                    onChange={e => setCreateForm({...createForm, customer_name: e.target.value})}
+                    required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                    style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Phone (optional)</label>
+                  <input type="text" value={createForm.customer_phone}
+                    onChange={e => setCreateForm({...createForm, customer_phone: e.target.value})}
+                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                    style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Pickup Date *</label>
+                  <input type="date" value={createForm.pickup_date}
+                    onChange={e => setCreateForm({...createForm, pickup_date: e.target.value})}
+                    required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                    style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Price (₱) *</label>
+                  <input type="number" min="0" step="0.01" value={createForm.price}
+                    onChange={e => setCreateForm({...createForm, price: e.target.value})}
+                    required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                    style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Cake Requirements / Notes</label>
+                  <textarea value={createForm.notes}
+                    onChange={e => setCreateForm({...createForm, notes: e.target.value})}
+                    rows={3} placeholder="Describe the custom cake the customer wants..."
+                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm resize-none"
+                    style={{ borderColor:'rgba(166,162,154,0.3)', color:SAGE, background:'#fafafa' }} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold mb-1" style={{ color: SAGE }}>Reference Image </label>
+                  <input type="file" accept="image/*"
+                    onChange={e => setCreateForm({...createForm, referenceImage: e.target.files[0] || null})}
+                    className="w-full text-sm" style={{ color: SAGE }} />
+                  {createForm.referenceImage && (
+                    <p style={{ fontSize: '0.72rem', color: MUTED_GRAY, marginTop: 4 }}>
+                      Selected: {createForm.referenceImage.name}
+                    </p>
+                  )}
+                </div>
               </div>
               <div className="divider-line" />
-              <div className="flex justify-end gap-3"><button type="button" onClick={() => setShowCreateModal(false)} className="sec-btn px-5 py-2.5 rounded-xl border text-sm" style={{ borderColor:'rgba(166,162,154,0.3)', color:MUTED_GRAY }}>Cancel</button><button type="submit" disabled={submitting} className="primary-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm disabled:opacity-50" style={{ background:`linear-gradient(135deg, ${SAGE}, #3e4c42)` }}>{submitting ? <Loader size={15} className="animate-spin" /> : <Check size={16} />}{submitting ? 'Creating…' : 'Create Order'}</button></div>
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={() => setShowCreateModal(false)}
+                  className="sec-btn px-5 py-2.5 rounded-xl border text-sm"
+                  style={{ borderColor:'rgba(166,162,154,0.3)', color:MUTED_GRAY }}>Cancel</button>
+                <button type="submit" disabled={submitting}
+                  className="primary-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm disabled:opacity-50"
+                  style={{ background:`linear-gradient(135deg, ${SAGE}, #3e4c42)` }}>
+                  {submitting ? <Loader size={15} className="animate-spin" /> : <Check size={16} />}
+                  {submitting ? 'Creating…' : 'Create Order'}
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -915,7 +1036,14 @@ export default function StaffOrders() {
                             <img
                               src={payment.proof_image_url}
                               alt="Payment proof"
-                              style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, border: '1px solid #ddd' }}
+                              onClick={() => setImagePreviewModal({ show: true, url: payment.proof_image_url })}
+                              style={{
+                                maxWidth: '100%',
+                                maxHeight: 200,
+                                borderRadius: 8,
+                                border: '1px solid #ddd',
+                                cursor: 'pointer',
+                              }}
                             />
                           </div>
                         )}
@@ -1002,17 +1130,24 @@ export default function StaffOrders() {
                         const design = item.custom_design;
                         return (
                           <div key={idx} className="mt-4">
-                            <CakePreviewShared
-                              design={viewOrderModal.order.items.find(i => i.cake_type === 'custom')?.custom_design}
-                              size={300}
-                              getFullImageUrl={getFullImageUrl}
-                              getFallbackUrl={getFallbackUrl}
-                              emptyState={
-                                <div className="w-full max-w-[300px] aspect-square flex items-center justify-center bg-gray-100 rounded-lg text-gray-400 text-sm">
-                                  No custom design
-                                </div>
-                              }
-                            />
+                            <div
+                              onClick={() => setImagePreviewModal({ show: true, url: null, design })}
+                              style={{ cursor: 'pointer', display: 'inline-block' }}
+                              title="Click to enlarge"
+                            >
+                              <CakePreviewShared
+                                design={viewOrderModal.order.items.find(i => i.cake_type === 'custom')?.custom_design}
+                                size={300}
+                                getFullImageUrl={getFullImageUrl}
+                                getFallbackUrl={getFallbackUrl}
+                                emptyState={
+                                  <div className="w-full max-w-[300px] aspect-square flex items-center justify-center bg-gray-100 rounded-lg text-gray-400 text-sm">
+                                    No custom design
+                                  </div>
+                                }
+                              />
+                            </div>
+
                             <div className="mt-3 p-3 rounded-lg" style={{ background: CREAM }}>
                               <p style={{ fontWeight: 600, color: SAGE, marginBottom: 4 }}>
                                 Custom Cake × {item.quantity}
@@ -1024,7 +1159,32 @@ export default function StaffOrders() {
                               {design.special_instructions && (
                                 <p><strong>Instructions:</strong> {design.special_instructions}</p>
                               )}
+
                             </div>
+
+
+                            {/* Customer Reference Image — ONLY for customer mobile custom cakes */}
+                            {viewOrderModal.order.customer_id != null && design?.reference_image_url && (
+                              <div className="mt-4">
+                                <h4 style={{ fontWeight: 700, color: SAGE, marginBottom: 8, fontSize: '0.9rem' }}>
+                                  Customer Reference Image
+                                </h4>
+                                <img
+                                  src={getFullImageUrl(design.reference_image_url)}
+                                  alt="Customer reference"
+                                  onClick={() => setImagePreviewModal({ show: true, url: getFullImageUrl(design.reference_image_url) })}
+                                  style={{
+                                    maxWidth: '100%',
+                                    maxHeight: 240,
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(166,162,154,0.3)',
+                                    objectFit: 'contain',
+                                    background: '#f5f0ea',
+                                    cursor: 'pointer',
+                                  }}
+                                />
+                              </div>
+                            )}
                           </div>
                         );
                       }
@@ -1051,6 +1211,7 @@ export default function StaffOrders() {
                             <img
                               src={fullImg}
                               alt={productName}
+                              onClick={() => setImagePreviewModal({ show: true, url: fullImg })}
                               style={{
                                 width: 80,
                                 height: 80,
@@ -1058,6 +1219,7 @@ export default function StaffOrders() {
                                 borderRadius: 8,
                                 flexShrink: 0,
                                 border: '1px solid rgba(166,162,154,0.2)',
+                                cursor: 'pointer',
                               }}
                               onError={(e) => {
                                 e.target.style.display = 'none';
@@ -1221,8 +1383,49 @@ export default function StaffOrders() {
 
       {/* ─── Image Preview Modal ─── */}
       {imagePreviewModal.show && (
-        <div className="image-preview-overlay" onClick={() => setImagePreviewModal({ show: false, url: null })}>
-          <img src={imagePreviewModal.url} alt="Preview" />
+        <div
+          className="image-preview-overlay"
+          onClick={() => setImagePreviewModal({ show: false, url: null, design: null })}
+        >
+          {imagePreviewModal.design ? (
+            (() => {
+              const previewSize = Math.min(
+                typeof window !== 'undefined' ? window.innerWidth * 0.85 : 500,
+                typeof window !== 'undefined' ? window.innerHeight * 0.85 : 500,
+                600
+              );
+              return (
+                <div
+                  style={{
+                    width: previewSize,
+                    height: previewSize,
+                    background: '#f5f0ea',
+                    borderRadius: 8,
+                    boxShadow: '0 4px 30px rgba(0,0,0,0.3)',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <CakePreviewShared
+                    design={imagePreviewModal.design}
+                    size={previewSize}
+                    getFullImageUrl={getFullImageUrl}
+                    getFallbackUrl={getFallbackUrl}
+                    emptyState={
+                      <div style={{ padding: 40, color: '#A6A29A', textAlign: 'center' }}>
+                        No custom design
+                      </div>
+                    }
+                  />
+                </div>
+              );
+            })()
+          ) : (
+            <img src={imagePreviewModal.url} alt="Preview" />
+          )}
         </div>
       )}
 
@@ -1360,63 +1563,172 @@ export default function StaffOrders() {
               </div>
 
               {/* Item Select */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                  {generalReportModal.form.item_type === 'product' ? 'Product' : 'Ingredient'} *
-                </label>
-                <select
-                  value={generalReportModal.form.item_id}
-                  onChange={(e) => handleGeneralReportItemSelect(e.target.value)}
-                  required
-                  disabled={generalReportModal.itemsLoading}
-                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
-                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', cursor: generalReportModal.itemsLoading ? 'wait' : 'pointer' }}
-                >
-                  <option value="">
-                    {generalReportModal.itemsLoading
-                      ? 'Loading…'
-                      : `Select ${generalReportModal.form.item_type}`}
-                  </option>
-                  {(generalReportModal.form.item_type === 'product'
-                    ? generalReportModal.products
-                    : generalReportModal.ingredients
-                  ).map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.name}
-                      {generalReportModal.form.item_type === 'product' && it.sku ? ` (${it.sku})` : ''}
-                      {generalReportModal.form.item_type === 'ingredient' && it.unit ? ` — ${it.unit}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Quantity + Unit */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* ── Product mode: single selector ── */}
+              {generalReportModal.form.item_type === 'product' && (
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Quantity *</label>
-                  <input type="number" step="0.01" min="0.01" value={generalReportModal.form.quantity} onChange={(e) => setGeneralReportModal((m) => ({ ...m, form: { ...m.form, quantity: e.target.value } }))} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Unit *</label>
-                  <input type="text" value={generalReportModal.form.unit} onChange={(e) => setGeneralReportModal((m) => ({ ...m, form: { ...m.form, unit: e.target.value } }))} required placeholder="e.g., PCS, G, ML" className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
-                </div>
-              </div>
-
-              {/* Est cost + Damage type */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Estimated Cost (₱) *</label>
-                  <input type="number" step="0.01" min="0" value={generalReportModal.form.estimated_cost} onChange={(e) => setGeneralReportModal((m) => ({ ...m, form: { ...m.form, estimated_cost: e.target.value } }))} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Damage Type *</label>
-                  <select value={generalReportModal.form.damage_type} onChange={(e) => setGeneralReportModal((m) => ({ ...m, form: { ...m.form, damage_type: e.target.value } }))} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', cursor: 'pointer' }}>
-                    <option value="spoilage">Spoilage</option>
-                    <option value="breakage">Breakage</option>
-                    <option value="expired">Expired</option>
-                    <option value="misproduction">Misproduction</option>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Product *
+                  </label>
+                  <select
+                    value={generalReportModal.form.item_id}
+                    onChange={(e) => handleGeneralReportItemSelect(e.target.value)}
+                    required
+                    disabled={generalReportModal.itemsLoading}
+                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', cursor: generalReportModal.itemsLoading ? 'wait' : 'pointer' }}
+                  >
+                    <option value="">{generalReportModal.itemsLoading ? 'Loading…' : 'Select product'}</option>
+                    {generalReportModal.products.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.name}{it.sku ? ` (${it.sku})` : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
+              )}
+
+              {/* ── Ingredient mode: multi-row UI ── */}
+              {generalReportModal.form.item_type === 'ingredient' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+                      Ingredients *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={addGeneralIngredientRow}
+                      style={{
+                        fontSize: '0.72rem', padding: '4px 10px', borderRadius: 8,
+                        background: 'rgba(79,95,82,0.08)', color: SAGE, border: 'none', cursor: 'pointer',
+                      }}
+                    >
+                      + Add Ingredient
+                    </button>
+                  </div>
+
+                  {generalReportModal.form.items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        marginBottom: 8,
+                        alignItems: 'center',
+                        padding: '6px 8px',
+                        borderRadius: 12,
+                        background: 'rgba(242,237,228,0.35)',
+                        border: '1px solid rgba(166,162,154,0.2)',
+                      }}
+                    >
+                      <select
+                        value={item.item_id}
+                        onChange={(e) => updateGeneralIngredientRow(idx, 'item_id', e.target.value)}
+                        className="modal-input"
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          borderRadius: 10,
+                          border: '1px solid rgba(166,162,154,0.3)',
+                          background: '#fff',
+                          color: SAGE,
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        <option value="">Select ingredient</option>
+                        {generalReportModal.ingredients.map((ing) => (
+                          <option key={ing.id} value={ing.id}>{ing.name}</option>
+                        ))}
+                      </select>
+
+                      <input
+                        type="number" min="0.01" step="0.01"
+                        value={item.quantity}
+                        onChange={(e) => updateGeneralIngredientRow(idx, 'quantity', e.target.value)}
+                        placeholder="Qty"
+                        className="modal-input"
+                        style={{
+                          width: 80,
+                          padding: '8px 12px',
+                          borderRadius: 10,
+                          border: '1px solid rgba(166,162,154,0.3)',
+                          background: '#fff',
+                          color: SAGE,
+                          textAlign: 'center',
+                          fontSize: '0.85rem',
+                        }}
+                      />
+
+                      {/* Unit as a compact badge instead of a full-width input */}
+                      <span
+                        style={{
+                          minWidth: 55,
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          background: 'rgba(79,95,82,0.08)',
+                          color: SAGE,
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          textAlign: 'center',
+                          border: '1px solid rgba(79,95,82,0.15)',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {item.unit || '—'}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => removeGeneralIngredientRow(idx)}
+                        disabled={generalReportModal.form.items.length === 1}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: generalReportModal.form.items.length === 1 ? 'rgba(239,68,68,0.3)' : '#EF4444',
+                          cursor: generalReportModal.form.items.length === 1 ? 'not-allowed' : 'pointer',
+                          padding: 4,
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                        title={generalReportModal.form.items.length === 1 ? 'At least one ingredient is required' : 'Remove ingredient'}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Quantity + Unit */}
+              {/* Quantity + Unit — only for single Product mode */}
+              {generalReportModal.form.item_type === 'product' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Quantity *</label>
+                      <input type="number" step="0.01" min="0.01" value={generalReportModal.form.quantity} onChange={(e) => setGeneralReportModal((m) => ({ ...m, form: { ...m.form, quantity: e.target.value } }))} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Unit *</label>
+                      <input type="text" value={generalReportModal.form.unit} onChange={(e) => setGeneralReportModal((m) => ({ ...m, form: { ...m.form, unit: e.target.value } }))} required placeholder="e.g., PCS, G, ML" className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Estimated Cost (₱) *</label>
+                    <input type="number" step="0.01" min="0" value={generalReportModal.form.estimated_cost} onChange={(e) => setGeneralReportModal((m) => ({ ...m, form: { ...m.form, estimated_cost: e.target.value } }))} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }} />
+                  </div>
+                </>
+              )}
+
+              {/* Damage Type — always shown */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>Damage Type *</label>
+                <select value={generalReportModal.form.damage_type} onChange={(e) => setGeneralReportModal((m) => ({ ...m, form: { ...m.form, damage_type: e.target.value } }))} required className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', cursor: 'pointer' }}>
+                  <option value="spoilage">Spoilage</option>
+                  <option value="breakage">Breakage</option>
+                  <option value="expired">Expired</option>
+                  <option value="misproduction">Misproduction</option>
+                </select>
               </div>
 
               {/* Description */}

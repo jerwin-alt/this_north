@@ -169,7 +169,7 @@ export default function Orders() {
   const [uploading, setUploading] = useState(false);
 
   // ── Image Preview Modal State ──
-  const [imagePreviewModal, setImagePreviewModal] = useState({ show: false, url: null });
+  const [imagePreviewModal, setImagePreviewModal] = useState({ show: false, url: null, design: null });
 
   // ── Admin Reply State ──
   const [replyInput, setReplyInput] = useState({});
@@ -1234,7 +1234,14 @@ export default function Orders() {
                             <img
                               src={payment.proof_image_url}
                               alt="Payment proof"
-                              style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, border: '1px solid #ddd' }}
+                              onClick={() => setImagePreviewModal({ show: true, url: payment.proof_image_url })}
+                              style={{
+                                maxWidth: '100%',
+                                maxHeight: 200,
+                                borderRadius: 8,
+                                border: '1px solid #ddd',
+                                cursor: 'pointer',
+                              }}
                             />
                           </div>
                         )}
@@ -1368,17 +1375,23 @@ export default function Orders() {
                         const design = item.custom_design;
                         return (
                           <div key={idx} className="mt-4">
-                            <CakePreviewShared
-                              design={design}
-                              size={300}
-                              getFullImageUrl={getFullImageUrl}
-                              getFallbackUrl={getFallbackUrl}
-                              emptyState={
-                                <div className="w-full max-w-[300px] aspect-square flex items-center justify-center bg-gray-100 rounded-lg text-gray-400 text-sm">
-                                  No custom design
-                                </div>
-                              }
-                            />
+                            <div
+                              onClick={() => setImagePreviewModal({ show: true, url: null, design })}
+                              style={{ cursor: 'pointer', display: 'inline-block' }}
+                              title="Click to enlarge"
+                            >
+                              <CakePreviewShared
+                                design={design}
+                                size={300}
+                                getFullImageUrl={getFullImageUrl}
+                                getFallbackUrl={getFallbackUrl}
+                                emptyState={
+                                  <div className="w-full max-w-[300px] aspect-square flex items-center justify-center bg-gray-100 rounded-lg text-gray-400 text-sm">
+                                    No custom design
+                                  </div>
+                                }
+                              />
+                            </div>
                             <div className="mt-3 p-3 rounded-lg" style={{ background: CREAM }}>
                               <p style={{ fontWeight: 600, color: SAGE, marginBottom: 4 }}>
                                 Custom Cake × {item.quantity}
@@ -1391,6 +1404,29 @@ export default function Orders() {
                                 <p><strong>Instructions:</strong> {design.special_instructions}</p>
                               )}
                             </div>
+
+                            {/* Customer Reference Image — ONLY for customer mobile custom cakes (walk-in orders use the main preview instead) */}
+                            {viewModal.order.customer_id != null && design?.reference_image_url && (
+                              <div className="mt-4">
+                                <h4 style={{ fontWeight: 700, color: SAGE, marginBottom: 8, fontSize: '0.9rem' }}>
+                                  Customer Reference Image
+                                </h4>
+                                <img
+                                  src={getFullImageUrl(design.reference_image_url)}
+                                  alt="Customer reference"
+                                  onClick={() => setImagePreviewModal({ show: true, url: getFullImageUrl(design.reference_image_url) })}
+                                  style={{
+                                    maxWidth: '100%',
+                                    maxHeight: 240,
+                                    borderRadius: 8,
+                                    border: '1px solid rgba(166,162,154,0.3)',
+                                    objectFit: 'contain',
+                                    background: '#f5f0ea',
+                                    cursor: 'pointer',
+                                  }}
+                                />
+                              </div>
+                            )}
                           </div>
                         );
                       }
@@ -1417,6 +1453,7 @@ export default function Orders() {
                             <img
                               src={fullImg}
                               alt={productName}
+                              onClick={() => setImagePreviewModal({ show: true, url: fullImg })}
                               style={{
                                 width: 80,
                                 height: 80,
@@ -1424,6 +1461,7 @@ export default function Orders() {
                                 borderRadius: 8,
                                 flexShrink: 0,
                                 border: '1px solid rgba(166,162,154,0.2)',
+                                cursor: 'pointer',
                               }}
                               onError={(e) => {
                                 e.target.style.display = 'none';
@@ -1583,10 +1621,50 @@ export default function Orders() {
         </div>
       )}
 
-      {/* ─── Image Preview Modal ─── */}
       {imagePreviewModal.show && (
-        <div className="image-preview-overlay" onClick={() => setImagePreviewModal({ show: false, url: null })}>
-          <img src={imagePreviewModal.url} alt="Preview" />
+        <div
+          className="image-preview-overlay"
+          onClick={() => setImagePreviewModal({ show: false, url: null, design: null })}
+        >
+          {imagePreviewModal.design ? (
+            (() => {
+              const previewSize = Math.min(
+                typeof window !== 'undefined' ? window.innerWidth * 0.85 : 500,
+                typeof window !== 'undefined' ? window.innerHeight * 0.85 : 500,
+                600
+              );
+              return (
+                <div
+                  style={{
+                    width: previewSize,
+                    height: previewSize,
+                    background: '#f5f0ea',
+                    borderRadius: 8,
+                    boxShadow: '0 4px 30px rgba(0,0,0,0.3)',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <CakePreviewShared
+                    design={imagePreviewModal.design}
+                    size={previewSize}
+                    getFullImageUrl={getFullImageUrl}
+                    getFallbackUrl={getFallbackUrl}
+                    emptyState={
+                      <div style={{ padding: 40, color: '#A6A29A', textAlign: 'center' }}>
+                        No custom design
+                      </div>
+                    }
+                  />
+                </div>
+              );
+            })()
+          ) : (
+            <img src={imagePreviewModal.url} alt="Preview" />
+          )}
         </div>
       )}
 

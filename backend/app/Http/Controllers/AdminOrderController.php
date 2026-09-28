@@ -47,7 +47,6 @@ class AdminOrderController extends Controller
         }
 
         if ($request->boolean('for_schedule')) {
-            $query->whereNotNull('customer_id');
             $orders = $query->get(); // no pagination for schedule
         } else {
             // ── pagination ──
@@ -246,11 +245,10 @@ class AdminOrderController extends Controller
             'items.customDesign.cakeSize',
             'items.customDesign.cakeFlavor',
             'customer:id,first_name,last_name,phone',
-            'payments' // load payments (optional but consistent)
+            'payments'
         ])
             ->whereDate('pickup_date', $date)
             ->whereIn('status', ['confirmed', 'preparing', 'ready'])
-            ->whereNotNull('customer_id')
             ->orderBy('pickup_time')
             ->get();
 

@@ -40,6 +40,9 @@ import {
   getIcingColorFromName,
   type CakeShape,
 } from '@/constants/cakeBase';
+import * as ImagePicker from 'expo-image-picker';
+
+
 const { width } = Dimensions.get('window');
 
 // ---- Colors ----
@@ -221,6 +224,7 @@ export default function CakeCustomization() {
   const [frostingFlavor, setFrostingFlavor] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [specialInstructions, setSpecialInstructions] = useState('');
+  const [referenceImage, setReferenceImage] = useState<any>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -548,6 +552,32 @@ export default function CakeCustomization() {
     });
   };
 
+
+
+  const pickReferenceImage = async () => {
+  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (status !== 'granted') {
+    Alert.alert('Permission needed', 'Please allow access to your photos to upload a reference image.');
+    return;
+  }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],   // ← new API (was MediaTypeOptions.Images)
+      allowsEditing: true,
+      quality: 0.8,
+    });
+  if (!result.canceled) {
+    const asset = result.assets[0];
+    setReferenceImage({
+      uri: asset.uri,
+      type: 'image/jpeg',
+      name: `reference_${Date.now()}.jpg`,
+    });
+  }
+};
+
+const removeReferenceImage = () => setReferenceImage(null);
+
+
   // ---- Total price calculation ----
   const calculateTotal = () => {
     let total = BASE_CAKE_PRICE;
@@ -578,32 +608,41 @@ export default function CakeCustomization() {
 
     setSubmitting(true);
     try {
-      // Build design payload
-      const designPayload = {
-        cake_size_id: sizeId,
-        cake_flavor_id: selectedFlavor || null,
-        frosting_flavor: frostingFlavor || null,
-        tiers: tierCount,                                       // ← NEW
-        custom_flavor: 'custom',
-        decorations: decorations.map(d => ({
+      // ─── Build multipart payload ───
+      const formData = new FormData();
+      formData.append('cake_size_id', String(sizeId));
+      if (selectedFlavor) formData.append('cake_flavor_id', String(selectedFlavor));
+      if (frostingFlavor) formData.append('frosting_flavor', frostingFlavor);
+      formData.append('tiers', String(tierCount));
+      formData.append('design_name', 'Custom Cake');
+      if (specialInstructions) formData.append('special_instructions', specialInstructions);
+      formData.append('total_price', String(calculateTotal()));
+      formData.append('decorations', JSON.stringify(
+        decorations.map(d => ({
           element_id: d.elementId,
           x: d.x,
           y: d.y,
           scale: d.scale ?? 1,
           color: d.color ?? null,
           colors: d.colors ?? null,
-          tier_index: d.tierIndex ?? 0,                          // ← NEW
-        })),
-        special_instructions: specialInstructions,
-        total_price: calculateTotal(),
-        design_name: 'Custom Cake',
-      };
+          tier_index: d.tierIndex ?? 0,
+        }))
+      ));
+      if (referenceImage) {
+        formData.append('reference_image', {
+          uri: referenceImage.uri,
+          name: referenceImage.name,
+          type: referenceImage.type,
+        } as any);
+      }
 
-      // 1. Save the design
-      const designRes = await axios.post('/custom-designs', designPayload);
+      // ─── Submit ───
+      const designRes = await axios.post('/custom-designs', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       const designId = designRes.data.design_id;
 
-      // 2. Prepare draft data
+      // ─── Build draft (unchanged) ───
       const sizeName = cakeSizes.find(s => s.id === sizeId)?.size_name || '';
       const flavorName = cakeFlavors.find(f => f.id === selectedFlavor)?.flavor_name || null;
 
@@ -617,7 +656,6 @@ export default function CakeCustomization() {
         totalPrice: calculateTotal(),
       };
 
-      // 3. Store in local state and open pickup modal
       setCustomCakeDraft(draft);
       setShowPickupModal(true);
     } catch (err: any) {
@@ -1101,6 +1139,33 @@ export default function CakeCustomization() {
               />
             </View>
           </View>
+
+          <View style={styles.optionRow}>
+          <Text style={styles.optionLabel}>Reference Image (Optional)</Text>
+          <Text style={{ color: MUTED_GRAY, fontSize: 12, marginBottom: 8 }}>
+            Upload a photo showing the design you'd like us to follow.
+          </Text>
+          {!referenceImage ? (
+            <TouchableOpacity onPress={pickReferenceImage} style={styles.uploadBtn}>
+              <Ionicons name="cloud-upload-outline" size={20} color={SAGE} />
+              <Text style={styles.uploadBtnText}>Choose Image</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ position: 'relative' }}>
+              <Image
+                source={{ uri: referenceImage.uri }}
+                style={{ width: '100%', height: 180, borderRadius: 12 }}
+                resizeMode="cover"
+              />
+              <TouchableOpacity
+                onPress={removeReferenceImage}
+                style={{ position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 12, padding: 4 }}
+              >
+                <Ionicons name="close-circle" size={24} color="#EF4444" />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
 
           <TouchableOpacity
             style={styles.summaryButton}
@@ -1910,5 +1975,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+    uploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: SAGE,
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(79,95,82,0.04)',
+  },
+  uploadBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: SAGE,
   },
 });

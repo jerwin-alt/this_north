@@ -117,6 +117,16 @@ class AdminLostAndDamageController extends Controller
             'stats'   => $stats,
             'message' => 'Lost & damage records retrieved successfully.',
         ]);
+
+
+        // $children = LostAndDamage::with([
+        //     'reportedBy:id,first_name,last_name',
+        //     'approvedBy:id,first_name,last_name',
+        // ])
+        // ->whereIn('parent_id', $rootIds)
+        // ->orderBy('id', 'asc')
+        // ->get()
+        // ->groupBy('parent_id');
     }
 
     /**
@@ -127,6 +137,7 @@ class AdminLostAndDamageController extends Controller
         $record = LostAndDamage::with([
             'reportedBy:id,first_name,last_name,email',
             'approvedBy:id,first_name,last_name,email',
+            'children',   // ← add this
         ])->findOrFail($id);
 
         return response()->json(['record' => $record]);
@@ -140,15 +151,23 @@ class AdminLostAndDamageController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'item_id'        => 'required|integer|min:1',
-            'item_type'      => ['required', Rule::in(['product', 'ingredient'])],
-            'quantity'       => 'required|numeric|min:0.01',
-            'unit'           => 'required|string|max:20',
-            'estimated_cost' => 'required|numeric|min:0',
+            // ── Single-item mode (Product always; Ingredient when no batch) ──
+            'item_id'        => 'required_without:items|nullable|integer|min:1',
+            'item_type'      => ['required_without:items', 'nullable', Rule::in(['product', 'ingredient'])],
+            'quantity'       => 'required_without:items|nullable|numeric|min:0.01',
+            'unit'           => 'required_without:items|nullable|string|max:20',
+            'estimated_cost' => 'required_without:items|nullable|numeric|min:0',
             'damage_type'    => ['required', Rule::in(['spoilage', 'breakage', 'expired', 'misproduction'])],
             'description'    => 'nullable|string|max:1000',
             'order_id'       => 'nullable|integer|exists:orders,id',
             'order_item_id'  => 'nullable|integer|exists:order_items,id',
+
+            // ── Batch mode (multiple ingredients) ──
+            'items'                  => 'nullable|array|min:1',
+            'items.*.item_id'        => 'required_with:items|integer|min:1',
+            'items.*.quantity'       => 'required_with:items|numeric|min:0.01',
+            'items.*.unit'           => 'required_with:items|string|max:20',
+            'items.*.estimated_cost' => 'nullable|numeric|min:0',
         ]);
 
         // ── If order context is provided, validate cross-consistency ──
@@ -169,6 +188,76 @@ class AdminLostAndDamageController extends Controller
                 ], 422);
             }
         }
+
+
+
+        // ─── BATCH MODE: multiple ingredients in one report ───
+        if (!empty($validated['items'])) {
+            DB::beginTransaction();
+            try {
+                $first = $validated['items'][0];
+
+                // Root row = metadata + first ingredient
+                $record = LostAndDamage::create([
+                    'order_id'          => $validated['order_id']      ?? null,
+                    'order_item_id'     => $validated['order_item_id'] ?? null,
+                    'item_id'           => $first['item_id'],
+                    'item_type'         => 'ingredient',
+                    'quantity'          => $first['quantity'],
+                    'unit'              => $first['unit'],
+                    'estimated_cost'    => array_sum(array_column($validated['items'], 'estimated_cost')),
+                    'damage_type'       => $validated['damage_type'],
+                    'description'       => $validated['description'] ?? null,
+                    'reported_by'       => auth()->id(),
+                    'reported_at'       => now(),
+                    'status'            => 'pending',
+                    'is_auto_generated' => false,
+                ]);
+
+                // Children = additional ingredients
+                foreach (array_slice($validated['items'], 1) as $item) {
+                    $exists = Ingredient::find($item['item_id']);
+                    if (!$exists) {
+                        throw new \Exception("Ingredient #{$item['item_id']} not found");
+                    }
+                    LostAndDamage::create([
+                        'parent_id'         => $record->id,
+                        'order_id'          => $validated['order_id']      ?? null,
+                        'order_item_id'     => $validated['order_item_id'] ?? null,
+                        'item_id'           => $item['item_id'],
+                        'item_type'         => 'ingredient',
+                        'quantity'          => $item['quantity'],
+                        'unit'              => $item['unit'],
+                        'estimated_cost'    => $item['estimated_cost'] ?? 0,
+                        'damage_type'       => $validated['damage_type'],
+                        'reported_by'       => auth()->id(),
+                        'reported_at'       => now(),
+                        'status'            => 'pending',
+                        'is_auto_generated' => false,
+                    ]);
+                }
+
+                UserActivityLog::create([
+                    'user_id'       => auth()->id(),
+                    'activity_type' => 'damage_reported',
+                    'reference_id'  => $record->id,
+                    'details'       => "Reported batch loss for " . count($validated['items']) . " ingredients",
+                ]);
+
+                DB::commit();
+
+                return response()->json([
+                    'message' => 'Lost/damage report created successfully.',
+                    'record'  => $record->load('children', 'reportedBy:id,first_name,last_name'),
+                ], 201);
+            } catch (\Exception $e) {
+                DB::rollBack();
+                return response()->json(['message' => 'Failed: ' . $e->getMessage()], 500);
+            }
+        }
+
+
+
 
         // ── Verify the referenced item actually exists ──
         $item = $validated['item_type'] === 'product'
@@ -227,7 +316,22 @@ class AdminLostAndDamageController extends Controller
 
         DB::beginTransaction();
         try {
-            $this->deductStockForApprovedRecord($record);
+            $children = $record->children;
+
+            if ($children->isNotEmpty()) {
+                // Batch report — deduct each child atomically
+                foreach ($children as $child) {
+                    $this->deductStockForApprovedRecord($child);
+                    $child->update([
+                        'status'      => 'approved',
+                        'approved_by' => auth()->id(),
+                        'approved_at' => now(),
+                    ]);
+                }
+            } else {
+                // Single-item report — existing behavior
+                $this->deductStockForApprovedRecord($record);
+            }
 
             $record->update([
                 'status'      => 'approved',
@@ -239,23 +343,18 @@ class AdminLostAndDamageController extends Controller
                 'user_id'       => auth()->id(),
                 'activity_type' => 'damage_reported',
                 'reference_id'  => $record->id,
-                'details'       => "Approved lost/damage record #{$record->id} ({$record->item_type} #{$record->item_id})",
+                'details'       => "Approved lost/damage record #{$record->id}",
             ]);
 
             DB::commit();
 
             return response()->json([
                 'message' => 'Lost/damage record approved successfully. Stock has been deducted.',
-                'record'  => $record->fresh([
-                    'reportedBy:id,first_name,last_name',
-                    'approvedBy:id,first_name,last_name',
-                ]),
+                'record'  => $record->fresh(['reportedBy:id,first_name,last_name', 'approvedBy:id,first_name,last_name', 'children']),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json([
-                'message' => 'Approval failed: ' . $e->getMessage(),
-            ], 500);
+            return response()->json(['message' => 'Approval failed: ' . $e->getMessage()], 500);
         }
     }
 

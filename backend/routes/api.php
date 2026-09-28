@@ -261,6 +261,8 @@ Route::middleware(['auth:sanctum', 'staff'])->prefix('staff')->group(function ()
     Route::put('orders/{id}/status', [StaffOrderController::class, 'updateStatus']); // status progression
     Route::post('payments', [StaffPaymentController::class, 'store']);
 
+    Route::post('orders/custom-cake', [StaffOrderController::class, 'storeCustomCake']); 
+
         // Staff discount list (read‑only)
     Route::get('discounts', [DiscountController::class, 'staffIndex']);
 

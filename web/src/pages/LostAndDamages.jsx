@@ -146,13 +146,14 @@ export default function LostAndDamages() {
   const [ingredients, setIngredients] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [form, setForm] = useState({
-    item_type: 'product',
-    item_id: '',
-    quantity: '',
-    unit: '',
-    estimated_cost: '',
-    damage_type: 'spoilage',
-    description: '',
+        item_type: 'product',
+        item_id: '',
+        quantity: '',
+        unit: '',
+        estimated_cost: '',
+        damage_type: 'spoilage',
+        description: '',
+        items: [{ item_id: '', quantity: '', unit: '', estimated_cost: '' }],
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
@@ -249,6 +250,7 @@ export default function LostAndDamages() {
       estimated_cost: '',
       damage_type: 'spoilage',
       description: '',
+      items: [{ item_id: '', quantity: '', unit: '', estimated_cost: '' }],
     });
     setFormError('');
     setShowCreate(true);
@@ -269,11 +271,72 @@ export default function LostAndDamages() {
     setForm((f) => ({ ...f, item_id: itemId, unit }));
   };
 
+
+const addIngredientRow = () => {
+  setForm((f) => ({
+    ...f,
+    items: [...(f.items || []), { item_id: '', quantity: '', unit: '', estimated_cost: '' }],
+  }));
+};
+
+const removeIngredientRow = (idx) => {
+  setForm((f) => ({
+    ...f,
+    items: f.items.filter((_, i) => i !== idx),
+  }));
+};
+
+const updateIngredientRow = (idx, field, value) => {
+  setForm((f) => {
+    const items = [...f.items];
+    items[idx] = { ...items[idx], [field]: value };
+    if (field === 'item_id' && value) {
+      const ing = ingredients.find((x) => x.id === Number(value));
+      if (ing) items[idx].unit = ing.unit || '';
+    }
+    return { ...f, items };
+  });
+};
+
   // ── Create handler ──
   const handleCreate = async (e) => {
     e.preventDefault();
     setFormError('');
 
+    // ─── BATCH MODE (Ingredient only) ───
+    if (form.item_type === 'ingredient') {
+      const valid = form.items.every(
+        (it) => it.item_id && Number(it.quantity) > 0 && it.unit
+      );
+      if (!valid) {
+        setFormError('Please fill in all ingredient rows (ingredient, quantity, unit).');
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        await axios.post('/admin/lost-and-damages', {
+          items: form.items.map((it) => ({
+            item_id: Number(it.item_id),
+            quantity: Number(it.quantity),
+            unit: it.unit,
+            estimated_cost: Number(it.estimated_cost || 0),
+          })),
+          damage_type: form.damage_type,
+          description: form.description || null,
+        });
+        setShowCreate(false);
+        await fetchRecords();
+        showToast('Batch loss/damage report created successfully.', 'success');
+      } catch (err) {
+        setFormError(err.response?.data?.message || 'Failed to create report.');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // ─── SINGLE MODE (Product) — existing code continues ───
     if (!form.item_id) { setFormError('Please select an item.'); return; }
     if (!form.quantity || Number(form.quantity) <= 0) { setFormError('Quantity must be greater than zero.'); return; }
     if (!form.unit) { setFormError('Unit is required.'); return; }
@@ -281,6 +344,8 @@ export default function LostAndDamages() {
       setFormError('Estimated cost is required.');
       return;
     }
+
+
 
     setSubmitting(true);
     try {
@@ -1071,96 +1136,212 @@ export default function LostAndDamages() {
               </div>
 
               {/* Item select */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                  {form.item_type === 'product' ? 'Product' : 'Ingredient'} *
-                </label>
-                <select
-                  value={form.item_id}
-                  onChange={(e) => handleItemSelect(e.target.value)}
-                  required
-                  disabled={itemsLoading}
-                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
-                  style={{
-                    borderColor: 'rgba(166,162,154,0.3)', color: SAGE,
-                    background: '#fafafa', cursor: itemsLoading ? 'wait' : 'pointer',
-                  }}
-                >
-                  <option value="">
-                    {itemsLoading ? 'Loading…' : `Select ${form.item_type}`}
-                  </option>
-                  {(form.item_type === 'product' ? products : ingredients).map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.name}
-                      {form.item_type === 'product' && it.sku ? ` (${it.sku})` : ''}
-                      {form.item_type === 'ingredient' && it.unit ? ` — ${it.unit}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Quantity + unit */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* ── Product mode: single selector (unchanged) ── */}
+              {form.item_type === 'product' && (
                 <div>
                   <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Quantity *
-                  </label>
-                  <input
-                    type="number" step="0.01" min="0.01"
-                    value={form.quantity}
-                    onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
-                    required
-                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
-                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Unit *
-                  </label>
-                  <input
-                    type="text"
-                    value={form.unit}
-                    onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
-                    required
-                    placeholder="e.g., PCS, G, ML"
-                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
-                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
-                  />
-                </div>
-              </div>
-
-              {/* Est cost + damage type */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Estimated Cost (₱) *
-                  </label>
-                  <input
-                    type="number" step="0.01" min="0"
-                    value={form.estimated_cost}
-                    onChange={(e) => setForm((f) => ({ ...f, estimated_cost: e.target.value }))}
-                    required
-                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
-                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Damage Type *
+                    Product *
                   </label>
                   <select
-                    value={form.damage_type}
-                    onChange={(e) => setForm((f) => ({ ...f, damage_type: e.target.value }))}
+                    value={form.item_id}
+                    onChange={(e) => handleItemSelect(e.target.value)}
                     required
+                    disabled={itemsLoading}
                     className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
-                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', cursor: 'pointer' }}
+                    style={{
+                      borderColor: 'rgba(166,162,154,0.3)', color: SAGE,
+                      background: '#fafafa', cursor: itemsLoading ? 'wait' : 'pointer',
+                    }}
                   >
-                    {DAMAGE_TYPE_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
+                    <option value="">
+                      {itemsLoading ? 'Loading…' : 'Select product'}
+                    </option>
+                    {products.map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.name}
+                        {it.sku ? ` (${it.sku})` : ''}
+                      </option>
                     ))}
                   </select>
                 </div>
+              )}
+
+              {/* ── Ingredient mode: multi-row UI ── */}
+              {form.item_type === 'ingredient' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+                      Ingredients *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={addIngredientRow}
+                      style={{
+                        fontSize: '0.72rem', padding: '4px 10px', borderRadius: 8,
+                        background: 'rgba(79,95,82,0.08)', color: SAGE, border: 'none', cursor: 'pointer',
+                      }}
+                    >
+                      + Add Ingredient
+                    </button>
+                  </div>
+
+                  {form.items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        marginBottom: 8,
+                        alignItems: 'center',
+                        padding: '6px 8px',
+                        borderRadius: 12,
+                        background: 'rgba(242,237,228,0.35)',
+                        border: '1px solid rgba(166,162,154,0.2)',
+                      }}
+                    >
+                      <select
+                        value={item.item_id}
+                        onChange={(e) => updateIngredientRow(idx, 'item_id', e.target.value)}
+                        className="modal-input"
+                        style={{
+                          flex: 1,
+                          padding: '8px 12px',
+                          borderRadius: 10,
+                          border: '1px solid rgba(166,162,154,0.3)',
+                          background: '#fff',
+                          color: SAGE,
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        <option value="">Select ingredient</option>
+                        {ingredients.map((ing) => (
+                          <option key={ing.id} value={ing.id}>{ing.name}</option>
+                        ))}
+                      </select>
+
+                      <input
+                        type="number" min="0.01" step="0.01"
+                        value={item.quantity}
+                        onChange={(e) => updateIngredientRow(idx, 'quantity', e.target.value)}
+                        placeholder="Qty"
+                        className="modal-input"
+                        style={{
+                          width: 80,
+                          padding: '8px 12px',
+                          borderRadius: 10,
+                          border: '1px solid rgba(166,162,154,0.3)',
+                          background: '#fff',
+                          color: SAGE,
+                          textAlign: 'center',
+                          fontSize: '0.85rem',
+                        }}
+                      />
+
+                      {/* Unit as a compact badge instead of a full-width input */}
+                      <span
+                        style={{
+                          minWidth: 55,
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          background: 'rgba(79,95,82,0.08)',
+                          color: SAGE,
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          textAlign: 'center',
+                          border: '1px solid rgba(79,95,82,0.15)',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {item.unit || '—'}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => removeIngredientRow(idx)}
+                        disabled={form.items.length === 1}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: form.items.length === 1 ? 'rgba(239,68,68,0.3)' : '#EF4444',
+                          cursor: form.items.length === 1 ? 'not-allowed' : 'pointer',
+                          padding: 4,
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                        title={form.items.length === 1 ? 'At least one ingredient is required' : 'Remove ingredient'}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Quantity + unit — only for single Product mode */}
+              {form.item_type === 'product' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                        Quantity *
+                      </label>
+                      <input
+                        type="number" step="0.01" min="0.01"
+                        value={form.quantity}
+                        onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
+                        required
+                        className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                        style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                        Unit *
+                      </label>
+                      <input
+                        type="text"
+                        value={form.unit}
+                        onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
+                        required
+                        placeholder="e.g., PCS, G, ML"
+                        className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                        style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Estimated Cost (₱) *
+                    </label>
+                    <input
+                      type="number" step="0.01" min="0"
+                      value={form.estimated_cost}
+                      onChange={(e) => setForm((f) => ({ ...f, estimated_cost: e.target.value }))}
+                      required
+                      className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                      style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Damage Type — always shown */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Damage Type *
+                </label>
+                <select
+                  value={form.damage_type}
+                  onChange={(e) => setForm((f) => ({ ...f, damage_type: e.target.value }))}
+                  required
+                  className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                  style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', cursor: 'pointer' }}
+                >
+                  {DAMAGE_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Description */}
@@ -1416,6 +1597,40 @@ export default function LostAndDamages() {
                 {r.item_sku && <Field label="SKU" value={r.item_sku} />}
                 {r.order_number && <Field label="Order #" value={r.order_number} />}
                 <Field label="Quantity" value={`${Number(r.quantity).toLocaleString()} ${r.unit}`} />
+
+
+                                {/* ── Batch report children ── */}
+                {Array.isArray(r.children) && r.children.length > 0 && (
+                  <div style={{ marginTop: 20, gridColumn: '1 / -1' }}>
+                    <p style={{
+                      fontSize: '0.7rem', fontWeight: 700, color: SAGE,
+                      letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 8,
+                    }}>
+                      Additional Ingredients
+                    </p>
+                    <div style={{
+                      borderRadius: 12, overflow: 'hidden',
+                      border: '1px solid rgba(242,237,228,0.9)',
+                      background: 'rgba(242,237,228,0.4)',
+                    }}>
+                      {r.children.map((c, i) => (
+                        <div key={c.id} style={{
+                          display: 'flex', justifyContent: 'space-between',
+                          padding: '10px 14px',
+                          borderTop: i === 0 ? 'none' : '1px solid rgba(166,162,154,0.15)',
+                        }}>
+                          <span style={{ color: SAGE, fontWeight: 600, fontSize: '0.83rem' }}>
+                            {c.item_name || `#${c.item_id}`}
+                          </span>
+                          <span style={{ color: SAGE, fontWeight: 700, fontSize: '0.83rem' }}>
+                            {Number(c.quantity).toLocaleString()} {c.unit}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <Field label="Estimated Cost" value={formatMoney(r.estimated_cost)} />
                 <Field label="Damage Type" value={dtStyle.label} />
                 <Field label="Reported By" value={`${r.reported_by?.first_name || ''} ${r.reported_by?.last_name || ''}`} />

@@ -9,6 +9,7 @@ use App\Models\OrderItem;
 use App\Models\UserActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
 
 
 class StaffLostAndDamageController extends Controller
@@ -114,15 +115,23 @@ class StaffLostAndDamageController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'item_id'        => 'required|integer|min:1',
-            'item_type'      => ['required', Rule::in(['product', 'ingredient'])],
-            'quantity'       => 'required|numeric|min:0.01',
-            'unit'           => 'required|string|max:20',
-            'estimated_cost' => 'required|numeric|min:0',
+            // ── Single-item mode ──
+            'item_id'        => 'required_without:items|nullable|integer|min:1',
+            'item_type'      => ['required_without:items', 'nullable', Rule::in(['product', 'ingredient'])],
+            'quantity'       => 'required_without:items|nullable|numeric|min:0.01',
+            'unit'           => 'required_without:items|nullable|string|max:20',
+            'estimated_cost' => 'required_without:items|nullable|numeric|min:0',
             'damage_type'    => ['required', Rule::in(['spoilage', 'breakage', 'expired', 'misproduction'])],
             'description'    => 'nullable|string|max:1000',
             'order_id'       => 'nullable|integer|exists:orders,id',
             'order_item_id'  => 'nullable|integer|exists:order_items,id',
+
+            // ── Batch mode ──
+            'items'                  => 'nullable|array|min:1',
+            'items.*.item_id'        => 'required_with:items|integer|min:1',
+            'items.*.quantity'       => 'required_with:items|numeric|min:0.01',
+            'items.*.unit'           => 'required_with:items|string|max:20',
+            'items.*.estimated_cost' => 'nullable|numeric|min:0',
         ]);
 
         // ── If order context is provided, validate cross-consistency ──
@@ -154,6 +163,73 @@ class StaffLostAndDamageController extends Controller
                 return response()->json([
                     'message' => "Quantity ({$validated['quantity']}) exceeds order item quantity ({$orderItem->quantity}).",
                 ], 422);
+            }
+        }
+
+
+
+        
+        
+        // ─── BATCH MODE: multiple ingredients in one report ───
+        if (!empty($validated['items'])) {
+            DB::beginTransaction();
+            try {
+                $first = $validated['items'][0];
+
+                $record = LostAndDamage::create([
+                    'order_id'          => $validated['order_id']      ?? null,
+                    'order_item_id'     => $validated['order_item_id'] ?? null,
+                    'item_id'           => $first['item_id'],
+                    'item_type'         => 'ingredient',
+                    'quantity'          => $first['quantity'],
+                    'unit'              => $first['unit'],
+                    'estimated_cost'    => array_sum(array_column($validated['items'], 'estimated_cost')),
+                    'damage_type'       => $validated['damage_type'],
+                    'description'       => $validated['description'] ?? null,
+                    'reported_by'       => auth()->id(),
+                    'reported_at'       => now(),
+                    'status'            => 'pending',
+                    'is_auto_generated' => false,
+                ]);
+
+                foreach (array_slice($validated['items'], 1) as $item) {
+                    $exists = Ingredient::find($item['item_id']);
+                    if (!$exists) {
+                        throw new \Exception("Ingredient #{$item['item_id']} not found");
+                    }
+                    LostAndDamage::create([
+                        'parent_id'         => $record->id,
+                        'order_id'          => $validated['order_id']      ?? null,
+                        'order_item_id'     => $validated['order_item_id'] ?? null,
+                        'item_id'           => $item['item_id'],
+                        'item_type'         => 'ingredient',
+                        'quantity'          => $item['quantity'],
+                        'unit'              => $item['unit'],
+                        'estimated_cost'    => $item['estimated_cost'] ?? 0,
+                        'damage_type'       => $validated['damage_type'],
+                        'reported_by'       => auth()->id(),
+                        'reported_at'       => now(),
+                        'status'            => 'pending',
+                        'is_auto_generated' => false,
+                    ]);
+                }
+
+                UserActivityLog::create([
+                    'user_id'       => auth()->id(),
+                    'activity_type' => 'damage_reported',
+                    'reference_id'  => $record->id,
+                    'details'       => "Reported batch loss for " . count($validated['items']) . " ingredients",
+                ]);
+
+                DB::commit();
+
+                return response()->json([
+                    'message' => 'Lost/damage report submitted. Waiting for admin approval.',
+                    'record'  => $record->load('children', 'reportedBy:id,first_name,last_name'),
+                ], 201);
+            } catch (\Exception $e) {
+                DB::rollBack();
+                return response()->json(['message' => 'Failed: ' . $e->getMessage()], 500);
             }
         }
 

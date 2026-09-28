@@ -15,6 +15,8 @@ use Illuminate\Validation\Rule;
 use App\Events\OrderStatusChanged;
 use Carbon\Carbon; // added for date handling
 use App\Models\Discount;
+use App\Models\Payment; 
+use App\Models\CustomDesign;
 
 class StaffOrderController extends Controller
 {
@@ -62,8 +64,6 @@ class StaffOrderController extends Controller
 
         // ── Schedule‑specific modifications ──
         if ($request->boolean('for_schedule')) {
-            // Exclude walk‑ins
-            $query->whereNotNull('customer_id');
             $orders = $query->get(); // no pagination for schedule
         } else {
             // For staff order management: include walk‑ins, but only those that are
@@ -141,9 +141,8 @@ class StaffOrderController extends Controller
         ])
             ->whereDate('pickup_date', $date)
             ->whereIn('status', ['confirmed', 'preparing', 'ready'])
-            ->whereNotNull('customer_id')   // exclude walk‑ins
             ->orderBy('pickup_time')
-            ->get();
+            ->get(); 
 
         $this->enrichOrdersWithDesigns($orders);
         return response()->json(['orders' => $orders, 'date' => $date]);
@@ -155,6 +154,7 @@ class StaffOrderController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
+            'source'          => 'nullable|string|in:staff_menu,staff_orders',
             'customer_name'   => 'required|string|max:150',
             'customer_phone'  => 'nullable|string|max:20',
             'customer_id'     => 'nullable|exists:users,id',
@@ -275,11 +275,36 @@ class StaffOrderController extends Controller
             }
 
             // ── Immediate walk‑in handling (if no pickup date) ──
+            // ── Immediate walk‑in handling (if no pickup date) ──
             if (is_null($order->pickup_date)) {
                 $order->pickup_date = Carbon::today()->toDateString();
                 $order->status = 'completed';
                 $order->load('items.menu.billOfMaterials.ingredient');
                 $this->deductInventoryForOrder($order);
+
+                // ── NEW: Auto-mark as fully paid for Staff Menu walk-ins ──
+                // The physical transaction is complete at the counter, so we
+                // record the payment immediately. Only applies when the order
+                // came from the Staff Menu flow — other walk-in flows
+                // (Staff Orders, Customer Mobile) keep their existing behavior.
+                if ($request->input('source') === 'staff_menu') {
+                    $order->payment_status = 'paid';
+
+                    Payment::create([
+                        'order_id'         => $order->id,
+                        'payment_type'     => 'full',
+                        'payment_method'   => 'cash',
+                        'amount_paid'      => $order->total_amount,
+                        'discount_amount'  => $order->discount_total ?? 0,
+                        'discount_id'      => $order->discount_id,
+                        'final_amount'     => $order->total_amount,
+                        'change_amount'    => 0,
+                        'payment_date'     => now(),
+                        'payment_status'   => 'completed',
+                        'processed_by'     => auth()->id(),
+                    ]);
+                }
+
                 $order->save();
             }
 
@@ -291,6 +316,130 @@ class StaffOrderController extends Controller
             DB::rollBack();
             \Log::error('Staff order creation failed: ' . $e->getMessage());
             return response()->json(['message' => 'Failed to create order: ' . $e->getMessage()], 500);
+        }
+    }
+
+
+
+        /**
+     * POST /api/staff/orders/custom-cake
+     *
+     * Create a Walk-In Custom Cake Order from Staff Orders.
+     * - No standard product items
+     * - No pickup time
+     * - Customer provides notes + a reference image
+     * - Staff sets a variable price
+     * - Auto-marked as paid (physical walk-in transaction)
+     */
+    public function storeCustomCake(Request $request)
+    {
+        $validated = $request->validate([
+            'customer_name'     => 'required|string|max:150',
+            'customer_phone'    => 'nullable|string|max:20',
+            'pickup_date'       => 'required|date|after_or_equal:today',
+            'notes'             => 'nullable|string|max:2000',
+            'price'             => 'required|numeric|min:0.01',
+            'reference_image'   => 'nullable|image|mimes:jpeg,png,jpg,webp|max:10240',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            // 1) Store reference image (if provided)
+            $imagePath = null;
+            if ($request->hasFile('reference_image')) {
+                $imagePath = $request->file('reference_image')->store('reference_images', 'public');
+            }
+
+            // 2) Create the CustomDesign record (no SVG decorations — reference only)
+            $design = CustomDesign::create([
+                'user_id'             => auth()->id(),
+                'design_name'         => 'Walk-In Custom Cake Request',
+                'custom_flavor'       => 'reference',
+                'cake_size_id'        => null,
+                'cake_flavor_id'      => null,
+                'frosting_flavor'     => null,
+                'tiers'               => 1,
+                'design_data'         => [],     // no SVG decorations
+                'special_instructions'=> $validated['notes'] ?? null,
+                'total_price'         => $validated['price'],
+                'is_saved'            => true,
+                'reference_image'     => $imagePath,
+            ]);
+
+            // 3) Generate order number (same format as elsewhere)
+            $totalOrders = Order::count();
+            $nextNumber  = str_pad($totalOrders + 1, 4, '0', STR_PAD_LEFT);
+            $orderNumber = 'ORD-' . date('Ymd') . '-' . $nextNumber;
+
+            // 4) Create the Order (staff-created, no customer_id)
+            $order = Order::create([
+                'order_number'    => $orderNumber,
+                'customer_id'     => null,                       // walk-in
+                'customer_name'   => $validated['customer_name'],
+                'customer_phone'  => $validated['customer_phone'] ?? null,
+                'pickup_date'     => $validated['pickup_date'],
+                'pickup_time'     => null,                       // no time for custom cakes
+                'notes'           => $validated['notes'] ?? null,
+                'status'          => 'confirmed',                // skips admin approval
+                'payment_status'  => 'partially_paid',                   // NEW: no payment collected yet
+                'subtotal'        => $validated['price'],
+                'total_amount'    => $validated['price'],
+                'discount_total'  => 0,
+                'created_by'      => auth()->id(),
+                'order_date'      => now(),
+            ]);
+
+            // 5) Create the single OrderItem — custom cake
+            OrderItem::create([
+                'order_id'         => $order->id,
+                'menu_id'          => null,
+                'cake_type'        => 'custom',
+                'custom_design_id' => $design->id,
+                'quantity'         => 1,
+                'unit_price'       => $validated['price'],
+                'subtotal'         => $validated['price'],
+                'total_price'      => $validated['price'],
+                'discount_amount'  => 0,
+                'is_free_item'     => false,
+            ]);
+
+            // 6) Record the auto-payment (physical walk-in)
+            // 6) Record the initial 50% down payment (custom cakes require a deposit)
+            $downpayment = round($validated['price'] * 0.5, 2);
+
+            Payment::create([
+                'order_id'         => $order->id,
+                'payment_type'     => 'downpayment',
+                'payment_method'   => 'cash',
+                'amount_paid'      => $downpayment,
+                'discount_amount'  => 0,
+                'final_amount'     => $downpayment,
+                'change_amount'    => 0,
+                'payment_date'     => now(),
+                'payment_status'   => 'completed',
+                'processed_by'     => auth()->id(),
+            ]);
+
+            // 7) Audit log
+            UserActivityLog::create([
+                'user_id'       => auth()->id(),
+                'activity_type' => 'order_placed',
+                'reference_id'  => $order->id,
+                'details'       => "Created walk-in custom cake order {$orderNumber} for {$validated['customer_name']}",
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Walk-in custom cake order created successfully.',
+                'order'   => $order->load('items.customDesign'),
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Walk-in custom cake creation failed: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to create walk-in custom cake order: ' . $e->getMessage(),
+            ], 500);
         }
     }
 

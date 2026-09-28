@@ -25,6 +25,7 @@ class CustomDesign extends Model
         'special_instructions',
         'total_price',
         'is_saved',
+        'reference_image',  
     ];
 
     protected $casts = [
@@ -36,7 +37,7 @@ class CustomDesign extends Model
 
 
         // Append enriched decorations to JSON output
-    protected $appends = ['decorations_with_elements'];
+    protected $appends = ['decorations_with_elements' , 'reference_image_url'];
 
     // Relationships
     public function user()
@@ -82,9 +83,29 @@ class CustomDesign extends Model
                 'supports_color' => $element->supports_color ?? false,
                 'color_parts'    => $element->color_parts ?? null,
                 'default_price'  => $element->default_price ?? 0,
+                
             ];
         }, $decorations);
     }
+
+
+    public function getReferenceImageUrlAttribute(): ?string
+    {
+        if (!$this->reference_image) return null;
+
+        // If the DB somehow stored a full URL (unlikely), strip the host
+        // and return only the path so the frontend can prepend its own origin.
+        if (preg_match('#^https?://[^/]+(/.*)?$#', $this->reference_image, $m)) {
+            return $m[1] ?? null;
+        }
+
+        // Return a relative path. The web/mobile frontend will prepend
+        // its own API origin via getFullImageUrl() / resolveUrl().
+        return '/storage/' . ltrim($this->reference_image, '/');
+    }
+
+
+
 
     // Accessor for the appended attribute
     public function getDecorationsWithElementsAttribute()

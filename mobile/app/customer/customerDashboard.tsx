@@ -1257,7 +1257,7 @@ export default function CustomerDashboard() {
 
     const interval = setInterval(() => {
       if (isMounted) generateNotificationsFromOrders();
-    }, 60000);   // ← 60 seconds instead of 5
+    }, 1000);   // ← 60 seconds instead of 5
 
     return () => {
       isMounted = false;
@@ -1619,7 +1619,7 @@ export default function CustomerDashboard() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       quality: 0.8,
     });

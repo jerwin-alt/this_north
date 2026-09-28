@@ -28,23 +28,45 @@ class SchemaRepairSeeder extends Seeder
             $cols = Schema::getColumnListing('custom_designs');
 
             Schema::table('custom_designs', function (Blueprint $table) use ($cols) {
-                if (!in_array('cake_flavor_id',  $cols, true)) {
-                    $table->foreignId('cake_flavor_id')->nullable()->constrained('cake_flavors')->nullOnDelete();
-                }
-                if (!in_array('frosting_flavor', $cols, true)) {
-                    $table->string('frosting_flavor')->nullable();
-                }
-                if (!in_array('tiers',           $cols, true)) {
-                    $table->unsignedInteger('tiers')->default(1);
-                }
+                if (!in_array('cake_flavor_id',   $cols, true)) $table->foreignId('cake_flavor_id')->nullable()->constrained('cake_flavors')->nullOnDelete();
+                if (!in_array('frosting_flavor',  $cols, true)) $table->string('frosting_flavor')->nullable();
+                if (!in_array('tiers',            $cols, true)) $table->unsignedInteger('tiers')->default(1);
+                if (!in_array('reference_image',  $cols, true)) $table->string('reference_image')->nullable()->after('frosting_flavor');   // NEW
             });
 
-            // Force custom_flavor to be NULLABLE (MySQL raw — safe + idempotent)
+            // Make cake_size_id nullable so walk-in reference orders don't need a size
+            try {
+                $colInfo = \DB::select("SHOW COLUMNS FROM custom_designs LIKE 'cake_size_id'");
+                if (!empty($colInfo) && strtoupper($colInfo[0]->Null) !== 'YES') {
+                    // Drop the FK first, alter, then re-add with the same behavior
+                    $fkList = \DB::select("
+                        SELECT CONSTRAINT_NAME
+                        FROM information_schema.KEY_COLUMN_USAGE
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'custom_designs'
+                          AND COLUMN_NAME = 'cake_size_id'
+                          AND REFERENCED_TABLE_NAME IS NOT NULL
+                    ");
+                    foreach ($fkList as $fk) {
+                        \DB::statement("ALTER TABLE custom_designs DROP FOREIGN KEY `{$fk->CONSTRAINT_NAME}`");
+                    }
+                    \DB::statement("ALTER TABLE custom_designs MODIFY cake_size_id BIGINT UNSIGNED NULL");
+                    \DB::statement("
+                        ALTER TABLE custom_designs
+                        ADD CONSTRAINT custom_designs_cake_size_id_foreign
+                        FOREIGN KEY (cake_size_id) REFERENCES cake_sizes(id)
+                    ");
+                    $this->command->info('✓ custom_designs.cake_size_id made nullable.');
+                }
+            } catch (\Exception $e) {
+                $this->command->warn('Could not alter cake_size_id: ' . $e->getMessage());
+            }
+
+            // Force custom_flavor nullable (existing behavior preserved)
             try {
                 $colInfo = \DB::select("SHOW COLUMNS FROM custom_designs LIKE 'custom_flavor'");
                 if (!empty($colInfo) && strtoupper($colInfo[0]->Null) !== 'YES') {
                     \DB::statement("ALTER TABLE custom_designs MODIFY custom_flavor VARCHAR(255) NULL");
-                    $this->command->info('✓ custom_flavor made nullable.');
                 }
             } catch (\Exception $e) {
                 $this->command->warn('Could not alter custom_flavor: ' . $e->getMessage());

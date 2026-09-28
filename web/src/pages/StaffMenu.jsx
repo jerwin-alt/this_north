@@ -294,6 +294,7 @@ export default function StaffMenu() {
     setSubmitting(true);
     try {
       const payload = {
+        source: 'staff_menu',   // ← NEW: distinguishes this flow from Staff Orders
         customer_name: customerName.trim(),
         customer_phone: '',
         pickup_date: null,
