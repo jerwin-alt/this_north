@@ -35,5 +35,11 @@ echo "Running database seeders..."
 php artisan db:seed --force || echo "⚠️  Seeding failed — continuing anyway"
 echo "Seeding complete."
 
-echo "Starting Laravel HTTP server on 0.0.0.0:${PORT:-8080}"
-exec php artisan serve --host=0.0.0.0 --port="${PORT:-8080}"
+# ─── Decide which process to run based on SERVICE env var ───
+if [ "${SERVICE:-laravel}" = "reverb" ]; then
+    echo "Starting Laravel Reverb on 0.0.0.0:${PORT:-8080}"
+    exec php artisan reverb:start --host=0.0.0.0 --port="${PORT:-8080}"
+else
+    echo "Starting Laravel HTTP server on 0.0.0.0:${PORT:-8080}"
+    exec php artisan serve --host=0.0.0.0 --port="${PORT:-8080}"
+fi
