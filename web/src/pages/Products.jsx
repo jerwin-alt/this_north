@@ -58,6 +58,18 @@ export default function Products() {
   // ── Toast (auto-dismissing notification) ──
   const [toast, setToast] = useState({ show: false, type: 'success', message: '' });
 
+  // ── Manage Categories modal ──
+  const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
+
+
+  // ── Activate / Deactivate confirmation ──
+  const [statusConfirm, setStatusConfirm] = useState({
+    show: false,
+    category: null,
+    newStatus: null,   // true = activate, false = deactivate
+    submitting: false,
+  });
+
   useEffect(() => {
     if (!toast.show) return;
     const timer = setTimeout(() => setToast((t) => ({ ...t, show: false })), 2800);
@@ -206,7 +218,6 @@ export default function Products() {
     return matchesSearch && matchesCategory;
   });
 
-  // ---------- Category Handlers ----------
   const openAddCategory = () => {
     setCatEditMode(false);
     setCurrentCategory(null);
@@ -261,6 +272,65 @@ export default function Products() {
       showToast(err.response?.data?.message || 'Cannot delete category (maybe has products)', 'error');
     } finally {
       setDeleteConfirmLoading(false);
+    }
+  };
+
+
+  // ─────────────────────────────────────────────────────────────
+  // Manage Categories — Activate / Deactivate
+  // ─────────────────────────────────────────────────────────────
+  const openManageCategories = () => {
+    setShowManageCategoriesModal(true);
+  };
+
+  const openStatusConfirm = (category) => {
+    if (!category) return;
+    setStatusConfirm({
+      show: true,
+      category,
+      newStatus: !category.is_active,
+      submitting: false,
+    });
+  };
+
+  const closeStatusConfirm = () => {
+    setStatusConfirm({ show: false, category: null, newStatus: null, submitting: false });
+  };
+
+  const confirmStatusChange = async () => {
+    const { category, newStatus } = statusConfirm;
+    if (!category) return;
+
+    setStatusConfirm((prev) => ({ ...prev, submitting: true }));
+    try {
+      await axios.put(`/categories/${category.id}`, {
+        name: category.name,
+        description: category.description || '',
+        is_active: newStatus,
+      });
+
+      await fetchCategories();
+      await fetchProducts();
+
+      // If the currently selected category was just deactivated, switch away.
+      if (!newStatus && selectedCategory?.id === category.id) {
+        const remaining = categories.filter(
+          (c) => c.is_active && c.id !== category.id
+        );
+        setSelectedCategory(remaining[0] || null);
+      }
+
+      closeStatusConfirm();
+      showToast(
+        newStatus ? 'Category activated successfully.' : 'Category deactivated successfully.',
+        'success'
+      );
+    } catch (err) {
+      setStatusConfirm((prev) => ({ ...prev, submitting: false }));
+      showToast(
+        err.response?.data?.message || 'Failed to update category status.',
+        'error'
+      );
     }
   };
 
@@ -667,6 +737,19 @@ export default function Products() {
           </div>
 
           <div className="flex gap-3">
+            <button
+              onClick={openManageCategories}
+              className="sec-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium"
+              style={{
+                background: 'rgba(166,162,154,0.15)',
+                color: SAGE,
+                border: `1.5px solid rgba(166,162,154,0.3)`,
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              <Layers size={16} strokeWidth={2.2} />
+              Manage Categories
+            </button>
             <button
               onClick={openAddCategory}
               className="sec-btn flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium"
@@ -1493,7 +1576,188 @@ export default function Products() {
         </div>
       )}
 
-      {/* ══ Delete Category Confirmation Modal ══ */}
+
+
+      {/* ══ Manage Categories Modal ══ */}
+      {showManageCategoriesModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 60, padding: 16, backdropFilter: 'blur(4px)',
+        }}>
+          <div className="anim-modal" style={{
+            background: '#fff', borderRadius: 22, width: '100%', maxWidth: 620,
+            maxHeight: '88vh', overflowY: 'auto',
+            boxShadow: '0 24px 60px rgba(79,95,82,0.18)',
+            border: '1px solid rgba(242,237,228,0.8)',
+          }}>
+            {/* Header */}
+            <div style={{
+              position: 'sticky', top: 0, zIndex: 10,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '20px 24px', borderBottom: `1px solid ${CREAM}`,
+              background: `linear-gradient(135deg, rgba(79,95,82,0.04), rgba(255,243,217,0.3))`,
+              backdropFilter: 'blur(8px)',
+            }}>
+              <div className="flex items-center gap-3">
+                <div style={{
+                  width: 34, height: 34,
+                  background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
+                  borderRadius: 10, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <Layers size={16} color="#fff" />
+                </div>
+                <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.05rem' }}>
+                  Manage Categories
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowManageCategoriesModal(false)}
+                style={{ color: MUTED_GRAY, padding: 7, borderRadius: 10, background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '20px 24px' }}>
+              {categories.length === 0 ? (
+                <p style={{ color: MUTED_GRAY, textAlign: 'center', padding: 24, fontSize: '0.85rem' }}>
+                  No categories yet.
+                </p>
+              ) : (
+                categories.map((cat) => (
+                  <div
+                    key={cat.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '12px 14px', borderRadius: 12, marginBottom: 8,
+                      background: cat.is_active ? 'rgba(79,95,82,0.04)' : 'rgba(166,162,154,0.08)',
+                      border: '1px solid rgba(166,162,154,0.2)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontWeight: 600, color: SAGE, fontSize: '0.9rem' }}>
+                        {cat.name}
+                      </span>
+                      <span style={{
+                        fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px',
+                        borderRadius: 999,
+                        background: cat.is_active ? 'rgba(52,196,104,0.1)' : 'rgba(166,162,154,0.15)',
+                        color: cat.is_active ? '#1a7a3c' : MUTED_GRAY,
+                        border: `1px solid ${cat.is_active ? 'rgba(52,196,104,0.25)' : 'rgba(166,162,154,0.25)'}`,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}>
+                        {cat.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => openStatusConfirm(cat)}
+                        className="action-btn"
+                        style={{
+                          padding: '6px 12px', borderRadius: 10,
+                          fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                          background: cat.is_active ? 'rgba(212,160,61,0.1)' : 'rgba(52,196,104,0.1)',
+                          color: cat.is_active ? '#92670a' : '#1a7a3c',
+                          border: `1px solid ${cat.is_active ? 'rgba(212,160,61,0.25)' : 'rgba(52,196,104,0.25)'}`,
+                        }}
+                      >
+                        {cat.is_active ? 'Deactivate' : 'Activate'}
+                      </button>
+                      <button
+                        onClick={() => deleteCategory(cat.id)}
+                        className="action-btn"
+                        style={{
+                          padding: '6px 12px', borderRadius: 10,
+                          fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                          background: 'rgba(239,68,68,0.08)',
+                          color: '#EF4444',
+                          border: '1px solid rgba(239,68,68,0.2)',
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Activate / Deactivate Confirmation Modal ══ */}
+      {statusConfirm.show && statusConfirm.category && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 70, padding: 16, backdropFilter: 'blur(4px)',
+        }}>
+          <div className="anim-modal" style={{
+            background: '#fff', borderRadius: 22, padding: '32px 28px',
+            maxWidth: 420, width: '100%', textAlign: 'center',
+            boxShadow: '0 24px 60px rgba(79,95,82,0.18)',
+            border: '1px solid rgba(242,237,228,0.8)',
+          }}>
+            <div style={{
+              width: 60, height: 60,
+              background: statusConfirm.newStatus ? 'rgba(52,196,104,0.1)' : 'rgba(212,160,61,0.1)',
+              borderRadius: 18, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', margin: '0 auto 18px',
+              border: `1.5px solid ${statusConfirm.newStatus ? 'rgba(52,196,104,0.2)' : 'rgba(212,160,61,0.25)'}`,
+            }}>
+              {statusConfirm.newStatus
+                ? <CheckCircle2 size={26} style={{ color: '#1a7a3c' }} />
+                : <AlertCircle size={26} style={{ color: '#D4A03D' }} />
+              }
+            </div>
+
+            <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.1rem', marginBottom: 8 }}>
+              {statusConfirm.newStatus ? 'Activate Category?' : 'Deactivate Category?'}
+            </h3>
+            <p style={{ color: MUTED_GRAY, fontSize: '0.83rem', lineHeight: 1.6, marginBottom: 22 }}>
+              {statusConfirm.newStatus
+                ? <>Are you sure you want to activate <strong style={{ color: SAGE }}>{statusConfirm.category.name}</strong>? It will appear again in menu tabs and can be used for new products.</>
+                : <>Are you sure you want to deactivate <strong style={{ color: SAGE }}>{statusConfirm.category.name}</strong>? It will be hidden from menu tabs, but existing products under it are unchanged.</>
+              }
+            </p>
+
+            <div className="divider-line mb-6" />
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button
+                onClick={closeStatusConfirm}
+                disabled={statusConfirm.submitting}
+                className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium"
+                style={{ borderColor: 'rgba(166,162,154,0.3)', color: MUTED_GRAY, background: 'transparent' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmStatusChange}
+                disabled={statusConfirm.submitting}
+                className="primary-btn flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-60"
+                style={{
+                  background: statusConfirm.newStatus
+                    ? 'linear-gradient(135deg, #34c468, #1a7a3c)'
+                    : 'linear-gradient(135deg, #D4A03D, #92670a)',
+                }}
+              >
+                {statusConfirm.submitting && <Loader size={14} className="animate-spin" />}
+                {statusConfirm.submitting ? 'Saving…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+
+            {/* ══ Delete Category Confirmation Modal ══ */}
       {deleteCategoryConfirm.show && deleteCategoryConfirm.category && (
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)',
@@ -1542,6 +1806,7 @@ export default function Products() {
           </div>
         </div>
       )}
+
 
       {/* ══ Delete Product Confirmation Modal ══ */}
       {deleteProductConfirm.show && deleteProductConfirm.product && (

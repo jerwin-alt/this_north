@@ -22,3 +22,8 @@ use App\Models\User;
 Broadcast::channel('private-customer.{customerId}', function (User $user, int $customerId) {
     return (int) $user->id === (int) $customerId;
 });
+
+
+Broadcast::channel('admin.orders', function ($user) {
+    return $user && $user->role === 'admin';
+});

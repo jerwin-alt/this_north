@@ -10,6 +10,7 @@ export default function RootLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="login" />
           <Stack.Screen name="register" />
+          <Stack.Screen name="otp-verification" options={{ headerShown: false }} />
           <Stack.Screen name="carmera" />
           <Stack.Screen name="customer/customerDashboard" />
           <Stack.Screen name="customer/cakeCustomization" options={{ headerShown: false }} />

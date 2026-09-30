@@ -25,60 +25,43 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\AdminLostAndDamageController;
 use App\Http\Controllers\StaffLostAndDamageController;
 
-
-
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-*/
-
-// Public routes (no authentication required)
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/register',   [AuthController::class, 'register']);
+Route::post('/login',      [AuthController::class, 'login']);
+Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
+Route::post('/resend-otp', [AuthController::class, 'resendOtp']);
 Route::get('/design-elements', [DesignElementController::class, 'index']);
 
-// Protected routes (require valid token)
+
+
 Route::middleware('auth:sanctum')->group(function () {
-    
-    // FIXED: use() → user()
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
-        // Customer endpoints
     Route::get('/customer/orders', [CustomerOrderController::class, 'index']);
     Route::get('/customer/stats', [CustomerOrderController::class, 'stats']);
-
     Route::post('/customer/orders', [CustomerOrderController::class, 'store']);
+    Route::put('/customer/orders/{order}/pickup-method', [CustomerOrderController::class, 'updatePickupMethod']);
+    Route::put('/customer/orders/{order}/cancel', [App\Http\Controllers\CustomerOrderController::class, 'cancel']);
 
     Route::post('/customer/payments', [App\Http\Controllers\CustomerPaymentController::class, 'store']);
-
     Route::post('/custom-designs', [CustomDesignController::class, 'store']);
     Route::get('/custom-designs/{id}', [CustomDesignController::class, 'show']);
 
     Route::get('/user/activity-logs', [App\Http\Controllers\UserActivityLogController::class, 'userLogs']);
-
     Route::get('/orders/{id}/logs', [UserActivityLogController::class, 'orderLogs']);
 
-    Route::put('/customer/orders/{order}/pickup-method', [CustomerOrderController::class, 'updatePickupMethod']);
+    Route::post('/customer/feedback', [App\Http\Controllers\CustomerFeedbackController::class, 'store']);
 
-    Route::put('/customer/orders/{order}/cancel', [App\Http\Controllers\CustomerOrderController::class, 'cancel']);
+    Route::get('/customer/feedback/{orderId}', [App\Http\Controllers\CustomerFeedbackController::class, 'show']);
+
 
 
     Route::get('/loyalty', [LoyaltyController::class, 'index']);
     Route::post('/loyalty/redeem/30-percent', [LoyaltyController::class, 'redeem30Percent']);
     Route::post('/loyalty/redeem/10-star', [LoyaltyController::class, 'redeem10Star']);
-
     Route::get('/loyalty/settings', [App\Http\Controllers\AdminLoyaltyController::class, 'settings']);
-
     Route::get('/loyalty/settings', [AdminLoyaltyController::class, 'settings']);
-
-
     Route::get('/customer/discount-eligibility', [CustomerOrderController::class, 'discountEligibility']);
-
-    Route::post('/customer/feedback', [App\Http\Controllers\CustomerFeedbackController::class, 'store']);
-
-    Route::get('/customer/feedback/{orderId}', [App\Http\Controllers\CustomerFeedbackController::class, 'show']);
 });
 
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
@@ -154,6 +137,9 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::get('/admin/schedule', [AdminOrderController::class, 'byDate']);                // calendar data
     Route::get('/admin/orders/{id}', [AdminOrderController::class, 'show']);
 
+    Route::get('/admin/orders/{id}/custom-cake', [AdminOrderController::class, 'getCustomCakeDetails']);
+    Route::put('/admin/orders/{id}/custom-cake', [AdminOrderController::class, 'updateCustomCake']);
+
 
 
         // SKU preview
@@ -222,17 +208,11 @@ Route::get('/menu', function () {
 
 Route::get('/menu', function (Request $request) {
     $query = \App\Models\Menu::where('is_active', true);
-    
-    // Filter by category if provided
     if ($request->filled('category')) {
         $query->where('category_id', $request->category);
     }
-    
     $menu = $query->get();
-    
-    // Load drink sizes and cake flavors for each product
-    $menu->load('drinkSizes');
-    
+    $menu->load('drinkSizes');   // ← verify this line exists
     return response()->json(['products' => $menu]);
 });
 
@@ -244,6 +224,9 @@ Route::get('/cake-sizes', function () {
 Route::get('/cake-flavors', function () {
     return \App\Models\CakeFlavor::where('is_active', true)->get();
 });
+
+
+
 
 
 /*

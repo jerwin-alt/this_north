@@ -10,6 +10,8 @@ import { useAuth } from '../contexts/auth-context';
 
 import { API_ORIGIN } from '../utils/apiBase';
 
+import { useToast, ToastContainer } from '../hooks/useToast';
+
 // ── Palette ──
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
@@ -76,6 +78,7 @@ export default function StaffMenu() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { toast, showToast } = useToast();
 
   // Cart state
   const [cart, setCart] = useState([]);
@@ -87,13 +90,16 @@ export default function StaffMenu() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [showProductModal, setShowProductModal] = useState(false);
   const [modalQuantity, setModalQuantity] = useState(1);
+  const [modalSizeId, setModalSizeId] = useState(null);
 
   // Discount state
   const [discountId, setDiscountId] = useState(null);
   const [discountApplied, setDiscountApplied] = useState(false);
-  const [discountedItemId, setDiscountedItemId] = useState(null);
+  const [discountedItemKey, setDiscountedItemKey] = useState(null);
   const [discountAmount, setDiscountAmount] = useState(0);
   const [discountValue, setDiscountValue] = useState(0);
+
+  const getCartKey = (item) => `${item.id}::${item.sizeId ?? 'none'}`;
 
   // ── Data fetching ──
   const fetchCategories = async () => {
@@ -154,51 +160,60 @@ export default function StaffMenu() {
   }, [selectedCategory]);
 
   // ── Cart functions ──
-  const addToCart = (product, quantity) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.id === product.id);
+  const addToCart = (product, quantity, sizeId = null) => {
+    const hasSizes = product.has_size_options && (product.drinkSizes?.length || 0) > 0;
+    const size = hasSizes && sizeId
+      ? product.drinkSizes.find((s) => s.id === sizeId)
+      : null;
+
+    const unitPrice = size
+      ? Number(size.price_modifier) || 0
+      : Number(product.base_price) || 0;
+
+    const sizeName = size?.size_name || null;
+
+    setCart((prev) => {
+      const existing = prev.find(
+        (item) => item.id === product.id && (item.sizeId ?? null) === (sizeId ?? null)
+      );
+
       if (existing) {
-        return prev.map(item =>
-          item.id === product.id
+        return prev.map((item) =>
+          item.id === product.id && (item.sizeId ?? null) === (sizeId ?? null)
             ? { ...item, quantity: item.quantity + quantity }
             : item
         );
       }
-      return [...prev, { ...product, quantity }];
+
+      return [
+        ...prev,
+        { ...product, quantity, sizeId: sizeId ?? null, sizeName, unitPrice },
+      ];
     });
-    // Auto‑clear discount if applied (to avoid inconsistencies)
-    if (discountApplied) {
-      removeDiscount();
-    }
+
+    // Auto-clear discount if applied (unchanged behaviour)
+    if (discountApplied) removeDiscount();
   };
 
-  const removeFromCart = (productId) => {
-    setCart(prev => prev.filter(item => item.id !== productId));
-    // If the discounted item was removed, clear discount
-    if (discountApplied && discountedItemId === productId) {
-      removeDiscount();
-    }
+
+  const removeFromCart = (key) => {
+    setCart((prev) => prev.filter((item) => getCartKey(item) !== key));
+    if (discountApplied && discountedItemKey === key) removeDiscount();
   };
 
-  const updateQuantity = (productId, delta) => {
-    setCart(prev => {
-      const item = prev.find(i => i.id === productId);
+  const updateQuantity = (key, delta) => {
+    setCart((prev) => {
+      const item = prev.find((i) => getCartKey(i) === key);
       if (!item) return prev;
       const newQty = item.quantity + delta;
       if (newQty <= 0) {
-        const updated = prev.filter(i => i.id !== productId);
-        if (discountApplied && discountedItemId === productId) {
-          removeDiscount();
-        }
-        return updated;
+        if (discountApplied && discountedItemKey === key) removeDiscount();
+        return prev.filter((i) => getCartKey(i) !== key);
       }
-      const updated = prev.map(i =>
-        i.id === productId ? { ...i, quantity: newQty } : i
+      const updated = prev.map((i) =>
+        getCartKey(i) === key ? { ...i, quantity: newQty } : i
       );
-      // If discount applied and quantity changed, clear discount to avoid inconsistencies
-      if (discountApplied) {
-        removeDiscount();
-      }
+      if (discountApplied) removeDiscount();
       return updated;
     });
   };
@@ -206,23 +221,22 @@ export default function StaffMenu() {
   // ── Discount functions ──
   const applyDiscount = () => {
     if (cart.length === 0) {
-      alert('Add at least one product to apply discount.');
+      showToast('Add at least one product to apply discount.', 'error');
       return;
     }
     if (discountApplied) {
-      alert('Discount already applied.');
+      showToast('Discount already applied.', 'error');
       return;
     }
     if (!discountId) {
-      alert('No active PWD/Senior Citizen discount found.');
+      showToast('No active PWD/Senior Citizen discount found.', 'error');
       return;
     }
 
-    // Find the item with the lowest total price (base_price * quantity)
     let lowestItem = null;
     let lowestTotal = Infinity;
-    cart.forEach(item => {
-      const itemTotal = item.base_price * item.quantity;
+    cart.forEach((item) => {
+      const itemTotal = (item.unitPrice || item.base_price) * item.quantity;
       if (itemTotal < lowestTotal) {
         lowestTotal = itemTotal;
         lowestItem = item;
@@ -230,64 +244,91 @@ export default function StaffMenu() {
     });
 
     if (!lowestItem) {
-      alert('No items to discount.');
+      showToast('No items to discount.', 'error');
       return;
     }
 
     const discountAmt = Math.round(lowestTotal * (discountValue / 100) * 100) / 100;
-    setDiscountedItemId(lowestItem.id);
+    setDiscountedItemKey(getCartKey(lowestItem));
     setDiscountAmount(discountAmt);
     setDiscountApplied(true);
   };
 
   const removeDiscount = () => {
-    setDiscountedItemId(null);
+    setDiscountedItemKey(null);
     setDiscountAmount(0);
     setDiscountApplied(false);
   };
 
   // ── Computed totals (including discount) ──
-  const subtotal = useMemo(() => {
-    return cart.reduce((sum, item) => sum + item.base_price * item.quantity, 0);
-  }, [cart]);
+const subtotal = useMemo(() => {
+  return cart.reduce(
+    (sum, item) => sum + (item.unitPrice || item.base_price) * item.quantity,
+    0
+  );
+}, [cart]);
 
-  const cartTotal = useMemo(() => {
-    return subtotal - (discountApplied ? discountAmount : 0);
-  }, [subtotal, discountApplied, discountAmount]);
+const cartTotal = useMemo(() => {
+  return subtotal - (discountApplied ? discountAmount : 0);
+}, [subtotal, discountApplied, discountAmount]);
 
-  const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
+const cartCount = useMemo(
+  () => cart.reduce((sum, item) => sum + item.quantity, 0),
+  [cart]
+);
 
   // ── Product modal handlers ──
   const openProductModal = (product) => {
+    console.log('[size-check]', {
+      name: product.name,
+      has_size_options: product.has_size_options,
+      drinkSizes_count: product.drinkSizes?.length,
+      drinkSizes: product.drinkSizes,
+    });
     setSelectedProduct(product);
     setModalQuantity(1);
+    setModalSizeId(null);
     setShowProductModal(true);
   };
+
+
+  
 
   const closeProductModal = () => {
     setShowProductModal(false);
     setSelectedProduct(null);
     setModalQuantity(1);
+    setModalSizeId(null);
   };
 
   const handleConfirmProduct = () => {
     if (!selectedProduct) return;
     if (modalQuantity < 1) {
-      alert('Quantity must be at least 1.');
+      showToast('Quantity must be at least 1.', 'error');
       return;
     }
-    addToCart(selectedProduct, modalQuantity);
+
+    const hasSizes =
+      selectedProduct.has_size_options &&
+      (selectedProduct.drinkSizes?.length || 0) > 0;
+
+    if (hasSizes && !modalSizeId) {
+      showToast('Please select a size before adding this product.', 'error');
+      return;
+    }
+
+    addToCart(selectedProduct, modalQuantity, modalSizeId);
     closeProductModal();
   };
 
   // ── Submit walk‑in order ──
   const handlePlaceOrder = async () => {
     if (!customerName.trim()) {
-      alert('Please enter customer name.');
+      showToast('Please enter customer name.', 'error');
       return;
     }
     if (cart.length === 0) {
-      alert('Cart is empty.');
+      showToast('Cart is empty.', 'error');
       return;
     }
 
@@ -303,13 +344,19 @@ export default function StaffMenu() {
         items: cart.map(item => ({
           menu_id: item.id,
           quantity: item.quantity,
+          size_id: item.sizeId || null, 
         })),
       };
 
       // Include discount data if applied
-      if (discountApplied && discountId) {
-        payload.discount_id = discountId;
-        payload.discounted_menu_id = discountedItemId;
+      if (discountApplied && discountId && discountedItemKey) {
+        const match = cart.find((c) => getCartKey(c) === discountedItemKey);
+        if (match) {
+          payload.discount_id = discountId;
+          payload.discounted_menu_id = match.id;
+          // pass the size too so the backend targets the right line item
+          payload.discounted_size_id = match.sizeId || null;
+        }
       }
 
       await axios.post('/staff/orders', payload);
@@ -323,7 +370,7 @@ export default function StaffMenu() {
       setDiscountedItemId(null);
       setDiscountAmount(0);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to create order');
+      showToast(err.response?.data?.message || 'Failed to create order', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -657,65 +704,81 @@ export default function StaffMenu() {
               ) : (
                 <>
                   <div style={{ maxHeight: '40vh', overflowY: 'auto', marginBottom: 12 }}>
-                    {cart.map(item => {
-                      const itemTotal = item.base_price * item.quantity;
-                      const isDiscounted = discountApplied && item.id === discountedItemId;
-                      const displayTotal = isDiscounted ? itemTotal - discountAmount : itemTotal;
-                      return (
-                        <div key={item.id} className="cart-item">
-                          <div className="cart-item-row">
-                            <div className="cart-item-thumb">
-                              <ProductImage imageUrl={item.image_url} name={item.name} />
-                            </div>
-                            <div className="cart-item-details">
-                              <div className="cart-item-name">{item.name}</div>
-                              <div className="cart-item-price">
-                                ₱{parseFloat(item.base_price).toLocaleString()} each
+                  {cart.map((item) => {
+                    const cartKey = getCartKey(item);
+                    const unitPrice = item.unitPrice || item.base_price;
+                    const itemTotal = unitPrice * item.quantity;
+                    const isDiscounted =
+                      discountApplied && item === cart.find((c) => getCartKey(c) === discountedItemKey);
+                    const displayTotal = isDiscounted ? itemTotal - discountAmount : itemTotal;
+
+                    return (
+                      <div key={cartKey} className="cart-item">
+                        <div className="cart-item-row">
+                          <div className="cart-item-thumb">
+                            <ProductImage imageUrl={item.image_url} name={item.name} />
+                          </div>
+                          <div className="cart-item-details">
+                            <div className="cart-item-name">{item.name}</div>
+                            {item.sizeName && (
+                              <div
+                                style={{
+                                  fontSize: '0.72rem',
+                                  color: MUTED_GRAY,
+                                  fontWeight: 500,
+                                  marginTop: 2,
+                                }}
+                              >
+                                Size: {item.sizeName}
                               </div>
-                              {isDiscounted && (
-                                <div style={{ fontSize: '0.75rem', color: '#D4A03D' }}>
-                                  <span style={{ textDecoration: 'line-through', color: MUTED_GRAY }}>
-                                    ₱{itemTotal.toLocaleString()}
-                                  </span>
-                                  {' → '}
-                                  <span style={{ fontWeight: 700, color: SAGE }}>
-                                    ₱{displayTotal.toLocaleString()}
-                                  </span>
-                                  <span style={{ color: '#16a34a', marginLeft: 4 }}>
-                                    (-₱{discountAmount.toLocaleString()})
-                                  </span>
-                                </div>
-                              )}
+                            )}
+                            <div className="cart-item-price">
+                              ₱{parseFloat(unitPrice).toLocaleString()} each
                             </div>
-                            <div className="cart-item-total-price">
-                              ₱{displayTotal.toLocaleString()}
-                            </div>
-                            <button
-                              onClick={() => removeFromCart(item.id)}
-                              className="cart-item-remove"
-                              title="Remove item"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            {isDiscounted && (
+                              <div style={{ fontSize: '0.75rem', color: '#D4A03D' }}>
+                                <span style={{ textDecoration: 'line-through', color: MUTED_GRAY }}>
+                                  ₱{itemTotal.toLocaleString()}
+                                </span>
+                                {' → '}
+                                <span style={{ fontWeight: 700, color: SAGE }}>
+                                  ₱{displayTotal.toLocaleString()}
+                                </span>
+                                <span style={{ color: '#16a34a', marginLeft: 4 }}>
+                                  (-₱{discountAmount.toLocaleString()})
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <div className="cart-item-controls">
-                            <button
-                              onClick={() => updateQuantity(item.id, -1)}
-                              className="cart-item-qty-btn"
-                            >
-                              <Minus size={12} color={SAGE} />
-                            </button>
-                            <span className="cart-item-qty">{item.quantity}</span>
-                            <button
-                              onClick={() => updateQuantity(item.id, 1)}
-                              className="cart-item-qty-btn"
-                            >
-                              <Plus size={12} color={SAGE} />
-                            </button>
+                          <div className="cart-item-total-price">
+                            ₱{displayTotal.toLocaleString()}
                           </div>
+                          <button
+                            onClick={() => removeFromCart(cartKey)}
+                            className="cart-item-remove"
+                            title="Remove item"
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </div>
-                      );
-                    })}
+                        <div className="cart-item-controls">
+                          <button
+                            onClick={() => updateQuantity(cartKey, -1)}
+                            className="cart-item-qty-btn"
+                          >
+                            <Minus size={12} color={SAGE} />
+                          </button>
+                          <span className="cart-item-qty">{item.quantity}</span>
+                          <button
+                            onClick={() => updateQuantity(cartKey, 1)}
+                            className="cart-item-qty-btn"
+                          >
+                            <Plus size={12} color={SAGE} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                   </div>
 
                   {/* ─── Discount Section ─── */}
@@ -902,6 +965,62 @@ export default function StaffMenu() {
               </div>
             </div>
 
+            {/* ── Size selector (only for products with sizes) ── */}
+            {selectedProduct.has_size_options &&
+            selectedProduct.drinkSizes &&
+            selectedProduct.drinkSizes.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: SAGE,
+                    marginBottom: 8,
+                  }}
+                >
+                  Choose Size <span style={{ color: '#EF4444' }}>*</span>
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {selectedProduct.drinkSizes.map((size) => {
+                    const active = modalSizeId === size.id;
+                    return (
+                      <button
+                        key={size.id}
+                        type="button"
+                        onClick={() => setModalSizeId(size.id)}
+                        style={{
+                          padding: '8px 14px',
+                          borderRadius: 10,
+                          cursor: 'pointer',
+                          fontSize: '0.82rem',
+                          fontWeight: 600,
+                          transition: 'all 0.15s',
+                          background: active ? SAGE : '#fafafa',
+                          color: active ? '#fff' : MUTED_GRAY,
+                          border: `1.5px solid ${active ? SAGE : 'rgba(166,162,154,0.3)'}`,
+                          boxShadow: active ? '0 3px 10px rgba(79,95,82,0.2)' : 'none',
+                        }}
+                      >
+                        <span style={{ display: 'block' }}>{size.size_name}</span>
+                        <span
+                          style={{
+                            display: 'block',
+                            fontSize: '0.7rem',
+                            marginTop: 2,
+                            color: active ? 'rgba(255,255,255,0.85)' : SAGE,
+                            fontWeight: 500,
+                          }}
+                        >
+                          ₱{parseFloat(size.price_modifier).toLocaleString()}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 10 }}>
               <button
                 onClick={closeProductModal}
@@ -928,6 +1047,9 @@ export default function StaffMenu() {
           </div>
         </div>
       )}
+      
+      <ToastContainer toast={toast} />
+
     </div>
   );
 }

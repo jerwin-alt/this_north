@@ -17,6 +17,7 @@ use Carbon\Carbon; // added for date handling
 use App\Models\Discount;
 use App\Models\Payment; 
 use App\Models\CustomDesign;
+use App\Events\OrderCreated;
 
 class StaffOrderController extends Controller
 {
@@ -38,6 +39,7 @@ class StaffOrderController extends Controller
     {
         $query = Order::with([
             'items.menu:id,name,base_price,image_url',
+            'items.drinkSize',            
             'items.customDesign.cakeSize',
             'items.customDesign.cakeFlavor',
             'customer:id,first_name,last_name,phone',
@@ -113,8 +115,10 @@ class StaffOrderController extends Controller
     {
         $order = Order::with([
             'items.menu:id,name,base_price,image_url',
+            'items.drinkSize',   
             'items.customDesign.cakeSize',
             'items.customDesign.cakeFlavor',
+            'customCakeBom.ingredient:id,name,unit', 
             'customer:id,first_name,last_name,phone',
             'payments',
             'feedback'
@@ -164,6 +168,7 @@ class StaffOrderController extends Controller
             'items'           => 'required|array|min:1',
             'items.*.menu_id' => 'required|exists:menu,id',
             'items.*.quantity'=> 'required|integer|min:1',
+            'items.*.size_id' => 'nullable|exists:drink_sizes,id', 
             // New discount fields (optional)
             'discount_id'     => 'nullable|exists:discounts,id',
             'discounted_menu_id' => 'nullable|exists:menu,id',
@@ -186,19 +191,35 @@ class StaffOrderController extends Controller
             $discountTotal = 0;
             $discountedItemIndex = null;
 
+
             foreach ($validated['items'] as $index => $itemData) {
                 $menu = Menu::findOrFail($itemData['menu_id']);
-                $unitPrice = $menu->base_price;
-                $quantity = $itemData['quantity'];
+                $sizeId = $itemData['size_id'] ?? null;
+
+                // Default: base price of the product.
+                $unitPrice = (float) $menu->base_price;
+
+                // If a size was chosen, use that size's absolute price.
+                // (price_modifier is stored as the absolute price after the migration.)
+                if ($sizeId) {
+                    $size = \App\Models\DrinkSize::where('menu_id', $menu->id)->find($sizeId);
+                    if (!$size) {
+                        throw new \Exception("Invalid size selected for {$menu->name}.");
+                    }
+                    $unitPrice = (float) $size->price_modifier;
+                }
+
+                $quantity  = (int) $itemData['quantity'];
                 $itemTotal = $unitPrice * $quantity;
                 $subtotal += $itemTotal;
 
                 $itemsData[] = [
-                    'menu_id' => $menu->id,
-                    'quantity' => $quantity,
-                    'unit_price' => $unitPrice,
-                    'total_price' => $itemTotal,
-                    'discount_amount' => 0, // will be set later if discount applies
+                    'menu_id'         => $menu->id,
+                    'drink_sizes_id'  => $sizeId,      // ← persist the chosen size
+                    'quantity'        => $quantity,
+                    'unit_price'      => $unitPrice,
+                    'total_price'     => $itemTotal,
+                    'discount_amount' => 0,
                 ];
             }
 
@@ -206,14 +227,32 @@ class StaffOrderController extends Controller
             if ($discount) {
                 // Determine which item to discount: either specified or the lowest‑priced
                 $discountedMenuId = $request->discounted_menu_id;
+                $discountedSizeId = $request->discounted_size_id;   // may be null
+
                 if ($discountedMenuId) {
-                    // Find the index of that item
-                    $discountedItemIndex = array_search($discountedMenuId, array_column($itemsData, 'menu_id'));
-                    if ($discountedItemIndex === false) {
+                    $discountedItemIndex = null;
+                    foreach ($itemsData as $idx => $row) {
+                        $rowSize = $row['drink_sizes_id'] ?? null;
+                        if (
+                            (int) $row['menu_id'] === (int) $discountedMenuId &&
+                            (int) ($rowSize ?? 0) === (int) ($discountedSizeId ?? 0)
+                        ) {
+                            $discountedItemIndex = $idx;
+                            break;
+                        }
+                    }
+                    if ($discountedItemIndex === null) {
+                        // Fall back to first matching menu id
+                        $discountedItemIndex = array_search(
+                            $discountedMenuId,
+                            array_column($itemsData, 'menu_id')
+                        );
+                    }
+                    if ($discountedItemIndex === false || $discountedItemIndex === null) {
                         throw new \Exception('Discounted product not found in order.');
                     }
                 } else {
-                    // Find the item with the lowest total price (unit_price * quantity)
+                    // existing fallback: pick lowest-priced line item
                     $lowestTotal = PHP_FLOAT_MAX;
                     foreach ($itemsData as $idx => $item) {
                         $itemTotal = $item['unit_price'] * $item['quantity'];
@@ -265,6 +304,7 @@ class StaffOrderController extends Controller
                 OrderItem::create([
                     'order_id'        => $order->id,
                     'menu_id'         => $item['menu_id'],
+                    'drink_sizes_id'  => $item['drink_sizes_id'], 
                     'cake_type'       => 'standard',
                     'quantity'        => $item['quantity'],
                     'unit_price'      => $item['unit_price'],
@@ -309,6 +349,8 @@ class StaffOrderController extends Controller
             }
 
             DB::commit();
+            
+            event(new OrderCreated($order->load('items.menu')));
 
             return response()->json(['order' => $order->load('items.menu')], 201);
 
@@ -429,6 +471,8 @@ class StaffOrderController extends Controller
             ]);
 
             DB::commit();
+
+            event(new OrderCreated($order->load('items.customDesign')));
 
             return response()->json([
                 'message' => 'Walk-in custom cake order created successfully.',

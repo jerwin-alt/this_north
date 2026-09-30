@@ -43,6 +43,7 @@ class Order extends Model
         'rider_photo',
         'discount_id',
         'discount_total',
+        'custom_cake_bom_deducted', 
     ];
 
     /**
@@ -60,6 +61,7 @@ class Order extends Model
         'progress_images'             => 'array',          // cast to array
         'pickup_proof_images'         => 'array',          // NEW: cast to array
         'discount_total' => 'decimal:2',
+        'custom_cake_bom_deducted' => 'boolean', 
     ];
 
     /**
@@ -111,6 +113,11 @@ class Order extends Model
         return $this->belongsTo(\App\Models\Discount::class, 'discount_id');
     }
 
+    public function customCakeBom()
+    {
+        return $this->hasMany(\App\Models\CustomCakeBom::class, 'order_id');
+    }
+
     // ─── Accessors ──────────────────────────────────────────────────
 
     /**
@@ -148,5 +155,17 @@ class Order extends Model
             return $this->rider_photo;
         }
         return asset('storage/' . $this->rider_photo);
+    }
+
+
+
+    public function isCustomCakeOrder(): bool
+    {
+        return $this->items()->where('cake_type', 'custom')->exists();
+    }
+
+    public function isStaffWalkIn(): bool
+    {
+        return is_null($this->customer_id);
     }
 }

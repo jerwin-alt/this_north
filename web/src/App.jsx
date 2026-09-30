@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Eye, EyeOff, Cake, Loader2 } from 'lucide-react';
 import { useAuth } from './contexts/auth-context';
 import { useNavigate } from 'react-router-dom';
+import { useToast, ToastContainer } from './hooks/useToast';
 
 // Color palette (unchanged)
 const SAGE = '#4F5F52';
@@ -15,6 +16,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [isLocalLoading, setIsLocalLoading] = useState(false);
+  const { toast, showToast } = useToast();
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -23,12 +25,12 @@ export default function App() {
     e.preventDefault();
     
     if (!email || !password) {
-      alert("Please enter email and password");
+      showToast("Please enter email and password", 'error');
       return;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      alert("Please enter a valid email address");
+      showToast("Please enter a valid email address", 'error');
       return;
     }
     
@@ -66,12 +68,12 @@ export default function App() {
           console.log("8. Access granted, navigating to dashboard...");
           navigate('/pages/staff-dashboard');
         } else {
-          alert('Access Denied. Unknown role.');
+          showToast('Access Denied. Unknown role.', 'error');
           await useAuth.getState().logout();
         }
             } else {
         console.log("5. No user found after login");
-        alert("Login Failed: Unable to Fetch User Information");
+        showToast("Login Failed: Unable to Fetch User Information", 'error');
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -82,7 +84,7 @@ export default function App() {
         errorMessage = error.message;
       }
       setError(errorMessage);
-      alert(errorMessage);
+      showToast(errorMessage, 'error');
     } finally {
       setIsLocalLoading(false);
       setLoading(false);
@@ -113,6 +115,8 @@ export default function App() {
               }}
             />
           ))}
+
+          
         </div>
         {/* Gradient overlay remains for readability */}
         <div className="absolute inset-0 bg-gradient-to-r" style={{ background: `linear-gradient(to right, ${SAGE}95, ${SAGE}60)` }} />
@@ -227,6 +231,10 @@ export default function App() {
           to { opacity: 1; transform: none; }
         }
       `}</style>
+
+      {/* ══ Toast ══ */}
+      <ToastContainer toast={toast} />
+
     </div>
   );
 }

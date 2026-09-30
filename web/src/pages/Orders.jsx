@@ -1,6 +1,6 @@
 // web/src/pages/Orders.jsx
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from '/api/axios';
 import {
   Loader,
@@ -15,6 +15,7 @@ import {
   Play,
   Ban,
   AlertTriangle,
+  Edit3, Plus, Trash2, Cake,
 } from 'lucide-react';
 
 // ── Import cake background and strawberry fallback ──
@@ -23,6 +24,7 @@ import strawberryImage from '../assets/CUSTOMIZE_CAKE5.jpg';
 import SvgDecorationWeb from '../components/SvgDecorationWeb';
 import CakePreviewShared from '../components/CakePreviewShared';
 import { API_ORIGIN } from '../utils/apiBase';
+import { initWebEcho } from '/services/echo';
 
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
@@ -139,8 +141,11 @@ function getFallbackUrl(elementName) {
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);   // ← NEW: only first load shows full spinner
+  const [isFetching, setIsFetching] = useState(false);    // ← NEW: background fetches (search/page)
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState(''); // ← NEW
   const [statusFilter, setStatusFilter] = useState('');
   const [actionLoading, setActionLoading] = useState(null);
 
@@ -200,6 +205,31 @@ export default function Orders() {
     totalItems: 0,
   });
 
+
+
+
+  // ── Edit Custom Cake Modal ──
+  const [customCakeModal, setCustomCakeModal] = useState({
+    show: false,
+    order: null,
+    loading: false,
+    submitting: false,
+    isStaffWalkin: false,
+    paymentStatus: '',
+    bomLocked: false,
+    form: { total_amount: '', payment_status: '', bom: [] },
+  });
+  const [ingredientsList, setIngredientsList] = useState([]);
+  const [ingredientsLoading, setIngredientsLoading] = useState(false);
+
+
+
+  // ── Live filter snapshot for the WebSocket listener ──
+  const filtersRef = useRef({ statusFilter, debouncedSearch });
+  useEffect(() => {
+    filtersRef.current = { statusFilter, debouncedSearch };
+  }, [statusFilter, debouncedSearch]);
+
   // ── Toast auto-dismiss ──
   useEffect(() => {
     if (!toast.show) return;
@@ -223,28 +253,51 @@ export default function Orders() {
     return [];
   };
 
+  // Debounce the search input so we don't fetch on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      // Reset to page 1 whenever the (debounced) search changes
+      setPagination((prev) =>
+        prev.currentPage === 1 ? prev : { ...prev, currentPage: 1 }
+      );
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
   const fetchOrders = useCallback(async () => {
-    setLoading(true);
+    // Full-page spinner only on the very first load; otherwise a
+    // lightweight background fetch that keeps the table visible.
+    if (initialLoad) {
+      setLoading(true);
+    } else {
+      setIsFetching(true);
+    }
     setError(null);
+
     try {
       const params = {
         page: pagination.currentPage,
         per_page: pagination.perPage,
       };
       if (statusFilter) params.status = statusFilter;
-      if (searchTerm) params.search = searchTerm;
+      if (debouncedSearch) params.search = debouncedSearch;   // ← use debounced value
+
       const response = await axios.get('/admin/orders', { params });
       const ordersArray = extractOrdersArray(response.data);
       setOrders(ordersArray);
+
       if (response.data.orders && typeof response.data.orders === 'object') {
         const p = response.data.orders;
-        setPagination(prev => ({
+        setPagination((prev) => ({
           ...prev,
           currentPage: p.current_page || 1,
           totalPages: p.last_page || 1,
           totalItems: p.total || 0,
         }));
       }
+
+      if (initialLoad) setInitialLoad(false);   // ← mark first successful load done
     } catch (err) {
       console.error(err);
       if (err.response?.status === 401) setError('Unauthorized. Please login again.');
@@ -252,12 +305,90 @@ export default function Orders() {
       else setError(err.response?.data?.message || 'Failed to load orders');
     } finally {
       setLoading(false);
+      setIsFetching(false);
     }
-  }, [statusFilter, searchTerm, pagination.currentPage, pagination.perPage]);
+  }, [
+    statusFilter,
+    debouncedSearch,               // ← replace searchTerm
+    pagination.currentPage,
+    pagination.perPage,
+    initialLoad,
+  ]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+
+  // ─────────────────────────────────────────────────────────────
+  // Real-time new-order listener (Reverb / WebSocket)
+  // Subscribes once, prepends matching orders as they are created.
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let channel = null;
+    let cancelled = false;
+
+    (async () => {
+      const echo = initWebEcho();
+      if (!echo || cancelled) return;
+
+      // 1) Subscribe to the private admin channel ONCE
+      channel = echo.private('admin.orders');
+
+      // 2) Confirm subscription (real signal — not the optimistic one below)
+      channel.subscribed(() => {
+        console.log('✅ CHANNEL CONFIRMED: admin.orders');
+      });
+
+      // 3) Surface subscription errors
+      channel.error((err) => {
+        console.error('❌ CHANNEL SUBSCRIPTION ERROR on admin.orders:', err);
+      });
+
+      // 4) Register the event listener ONCE
+      channel.listen('.order.created', (payload) => {
+        console.log('🔔 New order received:', payload);
+
+        const newOrder = payload?.order;
+        if (!newOrder?.id) return;
+
+        const f = filtersRef.current;
+
+        // Respect the active status filter
+        if (f.statusFilter && newOrder.status !== f.statusFilter) return;
+
+        // Respect the active search term
+        if (f.debouncedSearch) {
+          const s = f.debouncedSearch.toLowerCase();
+          const matches =
+            (newOrder.order_number || '').toLowerCase().includes(s) ||
+            (newOrder.customer_name || '').toLowerCase().includes(s);
+          if (!matches) return;
+        }
+
+        // Prepend without duplicates
+        setOrders((prev) => {
+          if (prev.some((o) => o.id === newOrder.id)) return prev;
+          return [newOrder, ...prev];
+        });
+
+        // Keep the pagination counter honest
+        setPagination((prev) => ({
+          ...prev,
+          totalItems: prev.totalItems + 1,
+        }));
+      });
+
+      console.log('✅ Admin subscribed to admin.orders');
+    })();
+
+    return () => {
+      cancelled = true;
+      if (channel) {
+        try { channel.stopListening('.order.created'); } catch {}
+      }
+    };
+  }, []);
 
   // ── Handlers ──
 
@@ -424,6 +555,250 @@ export default function Orders() {
     });
   };
 
+
+  const openCustomCakeReportModal = async (order) => {
+    const customItem = order.items?.find((i) => i.cake_type === 'custom');
+    if (!customItem) {
+      showToast('This order has no custom cake.', 'error');
+      return;
+    }
+
+    setCustomCakeReportModal({
+      show: true, order, loading: true, bom: [],
+      damage_type: 'spoilage', description: '', submitting: false,
+    });
+
+    try {
+      // Admin endpoint already returns the BOM for this order
+      const res = await axios.get(`/admin/orders/${order.id}/custom-cake`);
+      const bomRows = res.data?.bom || [];
+
+      if (bomRows.length === 0) {
+        setCustomCakeReportModal((m) => ({ ...m, loading: false }));
+        showToast('This custom cake has no BOM. Add BOM in Edit Custom Cake first.', 'error');
+        return;
+      }
+
+      const bom = bomRows.map((b) => ({
+        ingredient_id: b.ingredient_id,
+        ingredient_name: b.ingredient_name || `Ingredient #${b.ingredient_id}`,
+        unit: b.unit || '',
+        quantity_needed: parseFloat(b.quantity_needed) || 0,
+        report_quantity: '',
+        estimated_cost: '',
+        is_checked: false,
+      }));
+
+      setCustomCakeReportModal((m) => ({ ...m, loading: false, bom }));
+    } catch (err) {
+      showToast('Failed to load custom cake BOM.', 'error');
+      setCustomCakeReportModal((m) => ({ ...m, show: false, loading: false }));
+    }
+  };
+
+  const toggleBomIngredient = (idx) => {
+    setCustomCakeReportModal((m) => {
+      const bom = [...m.bom];
+      bom[idx] = { ...bom[idx], is_checked: !bom[idx].is_checked };
+      return { ...m, bom };
+    });
+  };
+
+  const updateBomField = (idx, field, value) => {
+    setCustomCakeReportModal((m) => {
+      const bom = [...m.bom];
+      bom[idx] = { ...bom[idx], [field]: value };
+      return { ...m, bom };
+    });
+  };
+
+  const handleCustomCakeReportSubmit = async (e) => {
+    e.preventDefault();
+    const { order, bom, damage_type, description } = customCakeReportModal;
+    if (!order) return;
+
+    const selected = bom.filter((b) => b.is_checked);
+    if (selected.length === 0) {
+      showToast('Please select at least one BOM ingredient.', 'error');
+      return;
+    }
+    const invalid = selected.find((b) => !b.report_quantity || parseFloat(b.report_quantity) <= 0);
+    if (invalid) {
+      showToast(`Please enter a valid quantity for ${invalid.ingredient_name}.`, 'error');
+      return;
+    }
+
+    setCustomCakeReportModal((m) => ({ ...m, submitting: true }));
+    try {
+      await axios.post('/admin/lost-and-damages', {
+        order_id: order.id,
+        items: selected.map((b) => ({
+          item_id: Number(b.ingredient_id),
+          quantity: Number(b.report_quantity),
+          unit: b.unit,
+          estimated_cost: Number(b.estimated_cost || 0),
+        })),
+        damage_type,
+        description: description || null,
+      });
+
+      setCustomCakeReportModal({
+        show: false, order: null, loading: false, bom: [],
+        damage_type: 'spoilage', description: '', submitting: false,
+      });
+      showToast('Custom cake loss/damage report submitted. Waiting for admin approval.', 'success');
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to submit report.', 'error');
+      setCustomCakeReportModal((m) => ({ ...m, submitting: false }));
+    }
+  };
+
+
+  
+  const [customCakeReportModal, setCustomCakeReportModal] = useState({
+  show: false,
+  order: null,
+  loading: false,
+  bom: [],
+  damage_type: 'spoilage',
+  description: '',
+  submitting: false,
+});
+
+
+  // Detect a custom cake order from the already-loaded items
+  const isCustomCakeOrder = (order) =>
+    Array.isArray(order?.items) &&
+    order.items.some((i) => i.cake_type === 'custom');
+
+  const fetchIngredients = useCallback(async () => {
+    if (ingredientsList.length > 0) return;
+    setIngredientsLoading(true);
+    try {
+      const res = await axios.get('/ingredients');
+      setIngredientsList(res.data.ingredients || []);
+    } catch (err) {
+      console.error('Failed to load ingredients', err);
+    } finally {
+      setIngredientsLoading(false);
+    }
+  }, [ingredientsList.length]);
+
+  const openCustomCakeModal = async (order) => {
+    setCustomCakeModal({
+      show: true,
+      order,
+      loading: true,
+      submitting: false,
+      isStaffWalkin: false,
+      paymentStatus: '',
+      bomLocked: false,
+      form: { total_amount: '', bom: [] },
+    });
+
+    fetchIngredients();
+
+    try {
+      const res = await axios.get(`/admin/orders/${order.id}/custom-cake`);
+      const d = res.data;
+      setCustomCakeModal((prev) => ({
+        ...prev,
+        loading: false,
+        isStaffWalkin: d.is_staff_walkin,
+        paymentStatus: d.payment_status,
+        bomLocked: d.bom_already_deducted,
+        form: {
+          total_amount: String(d.total_amount ?? ''),
+          payment_status: d.payment_status || 'partially_paid',   // ← add this
+          bom: (d.bom || []).map((b) => ({
+            ingredient_id: b.ingredient_id,
+            ingredient_name: b.ingredient_name,
+            quantity_needed: String(b.quantity_needed ?? ''),
+            unit: b.unit || '',
+          })),
+        },
+      }));
+    } catch (err) {
+      setCustomCakeModal((prev) => ({ ...prev, loading: false, show: false }));
+      showToast(err.response?.data?.message || 'Failed to load custom cake details.', 'error');
+    }
+  };
+
+  const addBomRow = () => {
+    setCustomCakeModal((m) => ({
+      ...m,
+      form: {
+        ...m.form,
+        bom: [...m.form.bom, { ingredient_id: '', quantity_needed: '', unit: '' }],
+      },
+    }));
+  };
+
+  const removeBomRow = (idx) => {
+    setCustomCakeModal((m) => ({
+      ...m,
+      form: { ...m.form, bom: m.form.bom.filter((_, i) => i !== idx) },
+    }));
+  };
+
+  const updateBomRow = (idx, field, value) => {
+    setCustomCakeModal((m) => {
+      const bom = [...m.form.bom];
+      bom[idx] = { ...bom[idx], [field]: value };
+      if (field === 'ingredient_id' && value) {
+        const ing = ingredientsList.find((x) => String(x.id) === String(value));
+        if (ing) bom[idx].unit = ing.unit || '';
+      }
+      return { ...m, form: { ...m.form, bom } };
+    });
+  };
+
+  const submitCustomCake = async (e) => {
+    e.preventDefault();
+    const { order, form, bomLocked } = customCakeModal;
+    if (!order) return;
+
+    if (!form.total_amount || Number(form.total_amount) < 0) {
+      showToast('Please enter a valid final price.', 'error');
+      return;
+    }
+    if (!bomLocked) {
+      const bad = form.bom.find(
+        (r) => !r.ingredient_id || !r.quantity_needed || Number(r.quantity_needed) <= 0 || !r.unit
+      );
+      if (bad) {
+        showToast('Please complete every BOM row (ingredient, quantity, unit).', 'error');
+        return;
+      }
+    }
+
+    setCustomCakeModal((m) => ({ ...m, submitting: true }));
+    try {
+      const payload = { total_amount: Number(form.total_amount) };
+
+      // Only send payment_status for Staff Walk-In custom cakes
+      if (customCakeModal.isStaffWalkin && form.payment_status) {
+        payload.payment_status = form.payment_status;
+      }
+
+      if (!bomLocked) {
+        payload.bom = form.bom.map((r) => ({
+          ingredient_id: Number(r.ingredient_id),
+          quantity_needed: Number(r.quantity_needed),
+          unit: r.unit,
+        }));
+      }
+
+      await axios.put(`/admin/orders/${order.id}/custom-cake`, payload);
+      await fetchOrders();
+      setCustomCakeModal((m) => ({ ...m, show: false, submitting: false }));
+      showToast('Custom cake updated successfully.', 'success');
+    } catch (err) {
+      setCustomCakeModal((m) => ({ ...m, submitting: false }));
+      showToast(err.response?.data?.message || 'Failed to update custom cake.', 'error');
+    }
+  };
+
   const handleReportItemChange = (itemId) => {
     const item = reportModal.items.find((i) => String(i.id) === String(itemId));
     if (!item) return;
@@ -528,7 +903,7 @@ export default function Orders() {
     return pages;
   };
 
-  if (loading) {
+  if (initialLoad) {
     return (
       <div style={{ background: CREAM, minHeight: '100vh' }} className="flex justify-center items-center h-64">
         <div className="flex flex-col items-center gap-3">
@@ -827,6 +1202,19 @@ export default function Orders() {
               className="modal-input w-full pl-10 pr-4 py-2.5 rounded-xl border bg-white text-sm"
               style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE }}
             />
+            {isFetching && (
+              <Loader
+                size={14}
+                className="animate-spin"
+                style={{
+                  position: 'absolute',
+                  right: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: SAGE,
+                }}
+              />
+            )}
           </div>
           <select
             value={statusFilter}
@@ -910,9 +1298,13 @@ export default function Orders() {
 
                           {/* ── Report Loss / Damage ── */}
                           {['confirmed', 'preparing', 'ready', 'completed'].includes(order.status) &&
-                            order.items?.some((i) => i.menu_id) && (
+                            (order.items?.some((i) => i.menu_id) || order.items?.some((i) => i.cake_type === 'custom')) && (
                               <button
-                                onClick={() => openReportModal(order)}
+                                onClick={() => {
+                                  const hasCustom = order.items?.some((i) => i.cake_type === 'custom');
+                                  if (hasCustom) openCustomCakeReportModal(order);
+                                  else openReportModal(order);
+                                }}
                                 className="action-btn p-1.5 rounded-lg"
                                 style={{ background: 'rgba(212,160,61,0.12)', color: '#92670a' }}
                                 title="Report loss / damage"
@@ -920,6 +1312,18 @@ export default function Orders() {
                                 <AlertTriangle size={14} />
                               </button>
                             )}
+
+
+                            {isCustomCakeOrder(order) && (
+                            <button
+                              onClick={() => openCustomCakeModal(order)}
+                              className="action-btn p-1.5 rounded-lg"
+                              style={{ background: 'rgba(122,91,138,0.12)', color: '#7A5B8A' }}
+                              title="Edit custom cake (price & BOM)"
+                            >
+                              <Cake size={14} />
+                            </button>
+                          )}
 
                           {order.customer_id !== null && (
                             <>
@@ -1007,7 +1411,7 @@ export default function Orders() {
                             </button>
                           )}
 
-                          {['preparing', 'ready'].includes(order.status) && (
+                          {['confirmed', 'preparing', 'ready'].includes(order.status) && (
                             <button
                               onClick={() => setCancelModal({ show: true, orderId: order.id, orderNumber: order.order_number })}
                               className="action-btn p-1.5 rounded-lg"
@@ -1406,7 +1810,9 @@ export default function Orders() {
                             </div>
 
                             {/* Customer Reference Image — ONLY for customer mobile custom cakes (walk-in orders use the main preview instead) */}
-                            {viewModal.order.customer_id != null && design?.reference_image_url && (
+                            {viewModal.order.customer_id != null &&
+                            design?.reference_image_url &&
+                            !design.reference_image_url.includes('payment_proofs') && (
                               <div className="mt-4">
                                 <h4 style={{ fontWeight: 700, color: SAGE, marginBottom: 8, fontSize: '0.9rem' }}>
                                   Customer Reference Image
@@ -1668,6 +2074,201 @@ export default function Orders() {
         </div>
       )}
 
+
+
+
+      {/* ═══ Edit Custom Cake Modal ═══ */}
+      {customCakeModal.show && customCakeModal.order && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16, backdropFilter: 'blur(4px)' }}>
+          <div className="anim-modal" style={{ background: '#fff', borderRadius: 22, width: '100%', maxWidth: 640, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(79,95,82,0.18)', border: '1px solid rgba(242,237,228,0.8)' }}>
+            {/* Header */}
+            <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: `1px solid ${CREAM}`, background: `linear-gradient(135deg, rgba(122,91,138,0.06), rgba(255,243,217,0.3))`, backdropFilter: 'blur(8px)' }}>
+              <div className="flex items-center gap-3">
+                <div style={{ width: 34, height: 34, background: 'linear-gradient(135deg, #7A5B8A, #5B3A6A)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 3px 10px rgba(122,91,138,0.3)' }}>
+                  <Cake size={16} color="#fff" />
+                </div>
+                <div>
+                  <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.05rem' }}>
+                    Edit Custom Cake
+                  </h3>
+                  <p style={{ color: MUTED_GRAY, fontSize: '0.72rem', marginTop: 2 }}>
+                    Order {customCakeModal.order.order_number} — {customCakeModal.isStaffWalkin ? 'Staff Walk-In' : 'Customer Mobile'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCustomCakeModal((m) => ({ ...m, show: false }))}
+                style={{ color: MUTED_GRAY, padding: 7, borderRadius: 10, background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            {/* Info banner */}
+            <div style={{ padding: '12px 24px 0' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '3px 10px', borderRadius: 999, background: customCakeModal.isStaffWalkin ? 'rgba(91,122,138,0.1)' : 'rgba(79,95,82,0.08)', color: customCakeModal.isStaffWalkin ? '#3d6b82' : SAGE, border: `1px solid ${customCakeModal.isStaffWalkin ? 'rgba(91,122,138,0.25)' : 'rgba(79,95,82,0.2)'}` }}>
+                  {customCakeModal.isStaffWalkin ? 'Walk-In (auto-paid on completion)' : 'Customer Mobile (payment preserved)'}
+                </span>
+                <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '3px 10px', borderRadius: 999, background: customCakeModal.paymentStatus === 'paid' ? 'rgba(52,196,104,0.1)' : customCakeModal.paymentStatus === 'partially_paid' ? 'rgba(234,179,8,0.1)' : 'rgba(239,68,68,0.08)', color: customCakeModal.paymentStatus === 'paid' ? '#1a7a3c' : customCakeModal.paymentStatus === 'partially_paid' ? '#92670a' : '#c0392b', border: '1px solid rgba(166,162,154,0.2)' }}>
+                  Payment: {customCakeModal.paymentStatus?.replace('_', ' ')}
+                </span>
+                {customCakeModal.bomLocked && (
+                  <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '3px 10px', borderRadius: 999, background: 'rgba(239,68,68,0.08)', color: '#c0392b', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    BOM already deducted — frozen
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {customCakeModal.loading ? (
+              <div style={{ padding: 40, display: 'flex', justifyContent: 'center' }}>
+                <Loader className="animate-spin" size={26} style={{ color: SAGE }} />
+              </div>
+            ) : (
+              <form onSubmit={submitCustomCake} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Final Price */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Final / Fixed Price (₱) *
+                  </label>
+                  <input
+                    type="number" step="0.01" min="0"
+                    value={customCakeModal.form.total_amount}
+                    onChange={(e) => setCustomCakeModal((m) => ({ ...m, form: { ...m.form, total_amount: e.target.value } }))}
+                    required
+                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                  />
+                  <p style={{ color: MUTED_GRAY, fontSize: '0.7rem', marginTop: 5 }}>
+                    This updates the order total. Existing payments and the payment status are preserved.
+                  </p>
+                </div>
+
+
+                {customCakeModal.isStaffWalkin && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Payment Status
+                    </label>
+                    <select
+                      value={customCakeModal.form.payment_status}
+                      onChange={(e) =>
+                        setCustomCakeModal((m) => ({ ...m, form: { ...m.form, payment_status: e.target.value } }))
+                      }
+                      className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                      style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', cursor: 'pointer' }}
+                    >
+                      <option value="partially_paid">Partially Paid</option>
+                      <option value="paid">Paid</option>
+                    </select>
+                    <p style={{ color: MUTED_GRAY, fontSize: '0.7rem', marginTop: 5 }}>
+                      Only Staff Walk-In custom cakes can be marked Paid here. Customer Mobile orders keep their customer-driven payment state.
+                    </p>
+                    <div className="divider-line" style={{ marginTop: 12 }} />
+                  </div>
+                )}
+
+                <div className="divider-line" />
+
+                {/* BOM */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <label style={{ fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+                      Bill of Materials (Ingredients)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={addBomRow}
+                      disabled={customCakeModal.bomLocked}
+                      style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: 8, background: customCakeModal.bomLocked ? 'rgba(166,162,154,0.15)' : 'rgba(79,95,82,0.08)', color: customCakeModal.bomLocked ? MUTED_GRAY : SAGE, border: 'none', cursor: customCakeModal.bomLocked ? 'not-allowed' : 'pointer' }}
+                    >
+                      + Add Ingredient
+                    </button>
+                  </div>
+
+                  {customCakeModal.bomLocked && (
+                    <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', marginBottom: 10 }}>
+                      <p style={{ color: '#c0392b', fontSize: '0.75rem', margin: 0 }}>
+                        BOM was already deducted at completion. It is read-only to protect inventory history.
+                      </p>
+                    </div>
+                  )}
+
+                  {customCakeModal.form.bom.length === 0 && !customCakeModal.bomLocked && (
+                    <p style={{ color: MUTED_GRAY, fontSize: '0.8rem', fontStyle: 'italic' }}>
+                      No ingredients yet. Add at least one so stock is deducted on completion.
+                    </p>
+                  )}
+
+                  {customCakeModal.form.bom.map((row, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center', padding: '6px 8px', borderRadius: 12, background: 'rgba(242,237,228,0.35)', border: '1px solid rgba(166,162,154,0.2)' }}>
+                      <select
+                        value={row.ingredient_id}
+                        onChange={(e) => updateBomRow(idx, 'ingredient_id', e.target.value)}
+                        disabled={customCakeModal.bomLocked}
+                        className="modal-input"
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(166,162,154,0.3)', background: '#fff', color: SAGE, fontSize: '0.85rem' }}
+                      >
+                        <option value="">{ingredientsLoading ? 'Loading…' : 'Select ingredient'}</option>
+                        {ingredientsList.filter((i) => i.is_active !== false).map((ing) => (
+                          <option key={ing.id} value={ing.id}>{ing.name}</option>
+                        ))}
+                      </select>
+
+                      <input
+                        type="number" min="0.01" step="0.01"
+                        value={row.quantity_needed}
+                        onChange={(e) => updateBomRow(idx, 'quantity_needed', e.target.value)}
+                        placeholder="Qty"
+                        disabled={customCakeModal.bomLocked}
+                        className="modal-input"
+                        style={{ width: 80, padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(166,162,154,0.3)', background: '#fff', color: SAGE, textAlign: 'center', fontSize: '0.85rem' }}
+                      />
+
+                      <span style={{ minWidth: 55, padding: '8px 10px', borderRadius: 10, background: 'rgba(79,95,82,0.08)', color: SAGE, fontSize: '0.75rem', fontWeight: 600, textAlign: 'center', border: '1px solid rgba(79,95,82,0.15)', whiteSpace: 'nowrap' }}>
+                        {row.unit || '—'}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => removeBomRow(idx)}
+                        disabled={customCakeModal.bomLocked}
+                        style={{ background: 'transparent', border: 'none', color: customCakeModal.bomLocked ? 'rgba(239,68,68,0.3)' : '#EF4444', cursor: customCakeModal.bomLocked ? 'not-allowed' : 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="divider-line" />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                  <button
+                    type="button"
+                    onClick={() => setCustomCakeModal((m) => ({ ...m, show: false }))}
+                    className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium"
+                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: MUTED_GRAY, background: 'transparent' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={customCakeModal.submitting}
+                    className="primary-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-50"
+                    style={{ background: 'linear-gradient(135deg, #7A5B8A, #5B3A6A)' }}
+                  >
+                    {customCakeModal.submitting ? <Loader size={15} className="animate-spin" /> : <Check size={15} />}
+                    {customCakeModal.submitting ? 'Saving…' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ═══ Report Loss / Damage Modal ═══ */}
       {reportModal.show && reportModal.order && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16, backdropFilter: 'blur(4px)' }}>
@@ -1811,6 +2412,181 @@ export default function Orders() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+
+
+
+      {/* ═══ Custom Cake Report Loss / Damage Modal ═══ */}
+      {customCakeReportModal.show && customCakeReportModal.order && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16, backdropFilter: 'blur(4px)' }}>
+          <div className="anim-modal" style={{ background: '#fff', borderRadius: 22, width: '100%', maxWidth: 620, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(79,95,82,0.18)', border: '1px solid rgba(242,237,228,0.8)' }}>
+            {/* Header */}
+            <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: `1px solid ${CREAM}`, background: `linear-gradient(135deg, rgba(122,91,138,0.06), rgba(255,243,217,0.3))`, backdropFilter: 'blur(8px)' }}>
+              <div className="flex items-center gap-3">
+                <div style={{ width: 34, height: 34, background: 'linear-gradient(135deg, #7A5B8A, #5B3A6A)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 3px 10px rgba(122,91,138,0.3)' }}>
+                  <AlertTriangle size={16} color="#fff" />
+                </div>
+                <div>
+                  <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.05rem' }}>
+                    Report Custom Cake Loss / Damage
+                  </h3>
+                  <p style={{ color: MUTED_GRAY, fontSize: '0.72rem', marginTop: 2 }}>
+                    Order {customCakeReportModal.order.order_number}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCustomCakeReportModal((m) => ({ ...m, show: false }))}
+                style={{ color: MUTED_GRAY, padding: 7, borderRadius: 10, background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            {customCakeReportModal.loading ? (
+              <div style={{ padding: 40, display: 'flex', justifyContent: 'center' }}>
+                <Loader className="animate-spin" size={26} style={{ color: SAGE }} />
+              </div>
+            ) : (
+              <form onSubmit={handleCustomCakeReportSubmit} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* BOM Ingredient Selection */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <label style={{ fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+                      BOM Ingredients * <span style={{ color: MUTED_GRAY, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(tick the ones lost / damaged)</span>
+                    </label>
+                  </div>
+
+                  {customCakeReportModal.bom.map((row, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        marginBottom: 8,
+                        background: row.is_checked ? 'rgba(122,91,138,0.06)' : 'rgba(242,237,228,0.35)',
+                        border: `1px solid ${row.is_checked ? 'rgba(122,91,138,0.3)' : 'rgba(166,162,154,0.2)'}`,
+                      }}
+                    >
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={row.is_checked}
+                          onChange={() => toggleBomIngredient(idx)}
+                          style={{ width: 16, height: 16, accentColor: '#7A5B8A', cursor: 'pointer' }}
+                        />
+                        <span style={{ fontWeight: 600, color: SAGE, fontSize: '0.88rem', flex: 1 }}>
+                          {row.ingredient_name}
+                        </span>
+                        <span style={{
+                          fontSize: '0.72rem', fontWeight: 600, color: MUTED_GRAY,
+                          background: 'rgba(79,95,82,0.07)', padding: '2px 8px', borderRadius: 6,
+                        }}>
+                          BOM: {row.quantity_needed} {row.unit}
+                        </span>
+                      </label>
+
+                      {row.is_checked && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600, color: SAGE, marginBottom: 4 }}>
+                              Lost/Damaged Qty ({row.unit})
+                            </label>
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={row.report_quantity}
+                              onChange={(e) => updateBomField(idx, 'report_quantity', e.target.value)}
+                              placeholder="0.00"
+                              className="modal-input w-full px-3 py-2 rounded-xl border text-sm"
+                              style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fff' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600, color: SAGE, marginBottom: 4 }}>
+                              Est. Cost (₱)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={row.estimated_cost}
+                              onChange={(e) => updateBomField(idx, 'estimated_cost', e.target.value)}
+                              placeholder="0.00"
+                              className="modal-input w-full px-3 py-2 rounded-xl border text-sm"
+                              style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fff' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Damage Type */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Damage Type *
+                  </label>
+                  <select
+                    value={customCakeReportModal.damage_type}
+                    onChange={(e) => setCustomCakeReportModal((m) => ({ ...m, damage_type: e.target.value }))}
+                    required
+                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', cursor: 'pointer' }}
+                  >
+                    <option value="spoilage">Spoilage</option>
+                    <option value="breakage">Breakage</option>
+                    <option value="expired">Expired</option>
+                    <option value="misproduction">Misproduction</option>
+                  </select>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Description (Optional)
+                  </label>
+                  <textarea
+                    value={customCakeReportModal.description}
+                    onChange={(e) => setCustomCakeReportModal((m) => ({ ...m, description: e.target.value }))}
+                    rows={3}
+                    placeholder="Explain what happened…"
+                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm resize-none"
+                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                  />
+                </div>
+
+                <div className="divider-line" />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                  <button
+                    type="button"
+                    onClick={() => setCustomCakeReportModal((m) => ({ ...m, show: false }))}
+                    className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium"
+                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: MUTED_GRAY, background: 'transparent' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={customCakeReportModal.submitting}
+                    className="primary-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-50"
+                    style={{ background: 'linear-gradient(135deg, #7A5B8A, #5B3A6A)' }}
+                  >
+                    {customCakeReportModal.submitting ? <Loader size={15} className="animate-spin" /> : <AlertTriangle size={15} />}
+                    {customCakeReportModal.submitting ? 'Submitting…' : 'Submit Report'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

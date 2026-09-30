@@ -87,7 +87,6 @@ export default function Ingredients() {
     fetchIngredients();
   }, []);
 
-  // ── Add/Edit Handlers ──
   const resetForm = () => {
     setFormData({
       name: '',

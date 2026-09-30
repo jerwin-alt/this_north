@@ -1257,7 +1257,7 @@ export default function CustomerDashboard() {
 
     const interval = setInterval(() => {
       if (isMounted) generateNotificationsFromOrders();
-    }, 1000);   // ← 60 seconds instead of 5
+    }, 60000);   // ← 60 seconds instead of 5
 
     return () => {
       isMounted = false;

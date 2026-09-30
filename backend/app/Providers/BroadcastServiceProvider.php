@@ -7,12 +7,13 @@ use Illuminate\Support\ServiceProvider;
 
 class BroadcastServiceProvider extends ServiceProvider
 {
-    /**
-     * Bootstrap any application services.
-     */
     public function boot(): void
     {
-        Broadcast::routes();
+        // Use Sanctum's token guard for private-channel authentication.
+        // The default 'web' middleware expects session cookies, which
+        // the mobile app does not send — that is what caused the
+        // 403 AccessDeniedHttpException in PusherBroadcaster::auth().
+        Broadcast::routes(['middleware' => ['auth:sanctum']]);
 
         require base_path('routes/channels.php');
     }

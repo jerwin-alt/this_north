@@ -183,9 +183,10 @@ export default function Register() {
       });
 
       // ✅ Success message (exact wording)
-      Alert.alert('Success', 'Registration successful. Please wait for admin verification.', [
-        { text: 'OK', onPress: () => router.push('/login') },
-      ]);
+      router.replace({
+        pathname: '/otp-verification',
+        params: { email },
+      });
     } catch (err: any) {
       if (err.response?.status === 422 && err.response?.data?.errors) {
         setErrors(err.response.data.errors);

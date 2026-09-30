@@ -11,6 +11,9 @@ use Carbon\Carbon;
 use Illuminate\Validation\Rule;
 use App\Events\OrderStatusChanged;
 use App\Traits\InventoryDeduction;   // <-- NEW
+use App\Models\CustomCakeBom;
+use App\Models\Ingredient;
+use App\Models\InventoryTransaction;
 
 class AdminOrderController extends Controller
 {
@@ -75,6 +78,7 @@ class AdminOrderController extends Controller
             'items.menu',
             'items.customDesign.cakeSize',
             'items.customDesign.cakeFlavor',
+            'customCakeBom.ingredient:id,name,unit',
             'customer',
             'payments',
             'feedback'
@@ -237,6 +241,169 @@ class AdminOrderController extends Controller
         ]);
     }
 
+
+
+
+
+    /**
+     * GET /api/admin/orders/{id}/custom-cake
+     * Fetch the custom cake's editable data (final price + BOM).
+     */
+    public function getCustomCakeDetails($id)
+    {
+        $order = Order::with([
+            'items.customDesign',
+            'customCakeBom.ingredient:id,name,unit',
+        ])->findOrFail($id);
+
+        $isCustom = $order->items()->where('cake_type', 'custom')->exists();
+        if (!$isCustom) {
+            return response()->json([
+                'message' => 'This order is not a custom cake order.',
+            ], 422);
+        }
+
+        return response()->json([
+            'order_id'             => $order->id,
+            'order_number'         => $order->order_number,
+            'customer_id'          => $order->customer_id,
+            'is_staff_walkin'      => is_null($order->customer_id),
+            'payment_status'       => $order->payment_status,
+            'status'               => $order->status,
+            'total_amount'         => (float) $order->total_amount,
+            'subtotal'             => (float) $order->subtotal,
+            'discount_total'       => (float) ($order->discount_total ?? 0),
+            'bom_already_deducted' => (bool) $order->custom_cake_bom_deducted,
+            'bom' => $order->customCakeBom->map(fn ($b) => [
+                'id'              => $b->id,
+                'ingredient_id'   => $b->ingredient_id,
+                'ingredient_name' => $b->ingredient?->name,
+                'quantity_needed' => (float) $b->quantity_needed,
+                'unit'            => $b->unit,
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * PUT /api/admin/orders/{id}/custom-cake
+     * Update the custom cake's final price and BOM.
+     * Does NOT deduct ingredients and does NOT touch payment_status.
+     */
+    public function updateCustomCake(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'total_amount'          => 'required|numeric|min:0',
+            'payment_status'        => 'nullable|string|in:partially_paid,paid',
+            'bom'                   => 'nullable|array',
+            'bom.*.ingredient_id'   => 'required|exists:ingredients,id',
+            'bom.*.quantity_needed' => 'required|numeric|min:0.01',
+            'bom.*.unit'            => 'required|string|max:20',
+        ]);
+
+        $order = Order::with('items')->findOrFail($id);
+
+        $isCustom = $order->items()->where('cake_type', 'custom')->exists();
+        if (!$isCustom) {
+            return response()->json([
+                'message' => 'This order is not a custom cake order.',
+            ], 422);
+        }
+
+        $bomLocked = (bool) $order->custom_cake_bom_deducted;
+
+        // Staff Walk-In = customer_id IS NULL. Customer Mobile = customer_id IS NOT NULL.
+        // Only Staff Walk-In may have its payment_status changed from this endpoint.
+        $isWalkIn = is_null($order->customer_id);
+
+        DB::beginTransaction();
+        try {
+            $oldTotal       = (float) $order->total_amount;
+            $oldPayment     = $order->payment_status;
+            $discount       = (float) ($order->discount_total ?? 0);
+            $newTotal       = (float) $validated['total_amount'];
+
+            // ── Update order totals ──
+            $order->subtotal     = $newTotal + $discount;
+            $order->total_amount = $newTotal;
+
+            // ── Explicit payment change: Staff Walk-In only ──
+            $paymentChanged = false;
+            if ($isWalkIn && !empty($validated['payment_status'])) {
+                if ($order->payment_status !== $validated['payment_status']) {
+                    $order->payment_status = $validated['payment_status'];
+                    $paymentChanged = true;
+                }
+            }
+
+            // Single save persists total_amount AND payment_status together.
+            $order->save();
+
+            // ── Update the custom cake order item(s) ──
+            $customItems = $order->items()->where('cake_type', 'custom')->get();
+            foreach ($customItems as $item) {
+                $qty       = max(1, (int) $item->quantity);
+                $unitPrice = round($newTotal / $qty, 2);
+
+                $item->unit_price  = $unitPrice;
+                $item->subtotal    = $newTotal;
+                $item->total_price = $newTotal;
+                $item->save();
+
+                if ($item->custom_design_id) {
+                    \App\Models\CustomDesign::where('id', $item->custom_design_id)
+                        ->update(['total_price' => $unitPrice]);
+                }
+            }
+
+            // ── Replace BOM (only if not already deducted) ──
+            if (!$bomLocked) {
+                CustomCakeBom::where('order_id', $order->id)->delete();
+                foreach ($validated['bom'] ?? [] as $row) {
+                    CustomCakeBom::create([
+                        'order_id'        => $order->id,
+                        'ingredient_id'   => $row['ingredient_id'],
+                        'quantity_needed' => $row['quantity_needed'],
+                        'unit'            => $row['unit'],
+                    ]);
+                }
+            }
+
+            // ── Audit log ──
+            $logParts = [
+                "Admin updated custom cake {$order->order_number}",
+                "price ₱{$oldTotal} → ₱{$newTotal}",
+            ];
+            if ($bomLocked) {
+                $logParts[] = 'BOM frozen — already deducted';
+            } else {
+                $logParts[] = 'BOM rows: ' . count($validated['bom'] ?? []);
+            }
+            if ($paymentChanged) {
+                $logParts[] = "payment {$oldPayment} → {$order->payment_status}";
+            }
+
+            UserActivityLog::create([
+                'user_id'       => auth()->id(),
+                'activity_type' => 'order_status_updated',
+                'reference_id'  => $order->id,
+                'details'       => implode(', ', $logParts),
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Custom cake updated successfully.',
+                'order'   => $order->fresh(['items.customDesign', 'customCakeBom.ingredient']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Custom cake update failed: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to update custom cake: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function byDate(Request $request)
     {
         $date = $request->input('date');
@@ -263,10 +430,10 @@ class AdminOrderController extends Controller
         ]);
 
         $order = Order::with(['items.menu'])->findOrFail($id);
-        $newStatus = $request->status;
+        $newStatus     = $request->status;
         $currentStatus = $order->status;
 
-        // ── NEW: Prevent status update if order is unpaid ──
+        // Order must be paid / partially paid to move forward.
         if (!in_array($order->payment_status, ['paid', 'partially_paid'])) {
             return response()->json([
                 'message' => 'Order must be paid or partially paid to change status.'
@@ -287,13 +454,19 @@ class AdminOrderController extends Controller
         ];
 
         if (!in_array($newStatus, $allowed[$currentStatus])) {
-            return response()->json(['message' => "Cannot change status from '{$currentStatus}' to '{$newStatus}'."], 422);
+            return response()->json([
+                'message' => "Cannot change status from '{$currentStatus}' to '{$newStatus}'."
+            ], 422);
         }
 
         DB::beginTransaction();
         try {
+            // ══════════════════════════════════════════════════════════════
+            // All stock / BOM deduction happens ONLY when completing.
+            // ══════════════════════════════════════════════════════════════
             if ($newStatus === 'completed') {
-                // ── Product stock deduction ──
+
+                // ── 1. Product stock deduction (standard items only) ──
                 foreach ($order->items as $item) {
                     if (is_null($item->menu_id)) continue;
                     $menu = Menu::lockForUpdate()->find($item->menu_id);
@@ -303,26 +476,79 @@ class AdminOrderController extends Controller
                     }
                     $menu->decrement('stock_quantity', $item->quantity);
                     UserActivityLog::create([
-                        'user_id' => auth()->id(),
+                        'user_id'       => auth()->id(),
                         'activity_type' => 'inventory_updated',
-                        'reference_id' => $menu->id,
-                        'details' => "Admin deducted product stock for {$menu->name}: -{$item->quantity}",
+                        'reference_id'  => $menu->id,
+                        'details'       => "Admin deducted product stock for {$menu->name}: -{$item->quantity}",
                     ]);
                 }
 
-                // ── NEW: Ingredient deduction ──
+                // ── 2. Ingredient BOM for standard menu items ──
                 $this->deductIngredientsForOrder($order);
+
+                // ── 3. Custom cake BOM — idempotent, inside completed gate ──
+                $hasCustomCake = $order->items()->where('cake_type', 'custom')->exists();
+
+                if ($hasCustomCake && !$order->custom_cake_bom_deducted) {
+                    $bomRows = CustomCakeBom::where('order_id', $order->id)->get();
+
+                    foreach ($bomRows as $bom) {
+                        $ingredient = Ingredient::lockForUpdate()->find($bom->ingredient_id);
+                        if (!$ingredient) {
+                            throw new \Exception("Ingredient ID {$bom->ingredient_id} not found.");
+                        }
+
+                        $needed = (float) $bom->quantity_needed;
+                        $avail  = (float) $ingredient->current_stock;
+
+                        if ($avail < $needed) {
+                            throw new \Exception(
+                                "Insufficient stock for {$ingredient->name}. " .
+                                "Needed: {$needed} {$bom->unit}, Available: {$avail} {$ingredient->unit}"
+                            );
+                        }
+
+                        $prevStock = $avail;
+                        $newStock  = $avail - $needed;
+                        $ingredient->update(['current_stock' => $newStock]);
+
+                        InventoryTransaction::create([
+                            'ingredient_id'    => $ingredient->id,
+                            'transaction_type' => 'usage',
+                            'quantity'         => $needed,
+                            'previous_stock'   => $prevStock,
+                            'new_stock'        => $newStock,
+                            'reference_type'   => 'order',
+                            'reference_id'     => $order->id,
+                            'notes'            => "Custom cake BOM for order {$order->order_number}",
+                            'created_by'       => auth()->id(),
+                        ]);
+
+                        UserActivityLog::create([
+                            'user_id'       => auth()->id(),
+                            'activity_type' => 'inventory_updated',
+                            'reference_id'  => $ingredient->id,
+                            'details'       => "Deducted {$needed} {$bom->unit} of {$ingredient->name} " .
+                                            "for custom cake order {$order->order_number}",
+                        ]);
+                    }
+
+                    $order->custom_cake_bom_deducted = true;
+                }
             }
+            // ══════════════════════════════════════════════════════════════
+            // End of deduction block. Nothing below touches inventory.
+            // ══════════════════════════════════════════════════════════════
 
             $order->status = $newStatus;
             $order->save();
 
             UserActivityLog::create([
-                'user_id' => auth()->id(),
+                'user_id'       => auth()->id(),
                 'activity_type' => 'order_status_updated',
-                'reference_id' => $order->id,
-                'details' => "Admin changed status from {$currentStatus} to {$newStatus}",
-                'created_at' => now(),
+                'reference_id'  => $order->id,
+                'details'       => "Admin changed status from {$currentStatus} to {$newStatus}",
+                'created_at'    => now(),
             ]);
 
             DB::commit();
@@ -336,11 +562,16 @@ class AdminOrderController extends Controller
                 event(new OrderStatusChanged($order, $messages[$newStatus], $newStatus));
             }
 
-            return response()->json(['message' => "Order status updated to {$newStatus}", 'order' => $order->fresh('items.menu')]);
+            return response()->json([
+                'message' => "Order status updated to {$newStatus}",
+                'order'   => $order->fresh('items.menu'),
+            ]);
         } catch (\Exception $e) {
             DB::rollBack();
             \Log::error('Admin status update failed: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to update status: ' . $e->getMessage()], 500);
+            return response()->json([
+                'message' => 'Failed to update status: ' . $e->getMessage()
+            ], 500);
         }
     }
 
@@ -349,21 +580,26 @@ class AdminOrderController extends Controller
         $order = Order::findOrFail($id);
         $request->validate(['reason' => 'required|string|max:1000']);
 
-        if (!in_array($order->status, ['preparing', 'ready'])) {
-            return response()->json(['message' => 'Only orders in Preparing or Ready status can be cancelled.'], 422);
+        // Allow cancelling confirmed, preparing, or ready orders.
+        if (!in_array($order->status, ['confirmed', 'preparing', 'ready'])) {
+            return response()->json([
+                'message' => 'Only orders in Confirmed, Preparing, or Ready status can be cancelled.'
+            ], 422);
         }
 
-        $reason = $request->reason;
+        $reason  = $request->reason;
         $oldNotes = $order->notes ?? '';
-        $order->notes = $oldNotes ? $oldNotes . "\n[CANCELLED]: " . $reason : "[CANCELLED]: " . $reason;
+        $order->notes = $oldNotes
+            ? $oldNotes . "\n[CANCELLED]: " . $reason
+            : "[CANCELLED]: " . $reason;
         $order->status = 'cancelled';
         $order->save();
 
         UserActivityLog::create([
-            'user_id' => auth()->id(),
+            'user_id'       => auth()->id(),
             'activity_type' => 'order_cancelled',
-            'reference_id' => $order->id,
-            'details' => "Admin cancelled order {$order->order_number}. Reason: {$reason}",
+            'reference_id'  => $order->id,
+            'details'       => "Admin cancelled order {$order->order_number}. Reason: {$reason}",
         ]);
 
         event(new OrderStatusChanged(

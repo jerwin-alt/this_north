@@ -91,17 +91,27 @@ class CustomDesign extends Model
 
     public function getReferenceImageUrlAttribute(): ?string
     {
-        if (!$this->reference_image) return null;
+        if (!$this->reference_image) {
+            return null;
+        }
 
-        // If the DB somehow stored a full URL (unlikely), strip the host
-        // and return only the path so the frontend can prepend its own origin.
-        if (preg_match('#^https?://[^/]+(/.*)?$#', $this->reference_image, $m)) {
+        $value = (string) $this->reference_image;
+
+        // ── Defensive: reject cross-contaminated values ──
+        // The reference image MUST live under "reference_images/".
+        // If the stored value points to a payment proof (or any other
+        // upload folder), refuse to expose it as a reference image URL.
+        if (str_contains($value, 'payment_proofs')) {
+            return null;
+        }
+
+        // If the DB somehow stored a full URL, strip the host so the
+        // frontend prepends its own origin.
+        if (preg_match('#^https?://[^/]+(/.*)?$#', $value, $m)) {
             return $m[1] ?? null;
         }
 
-        // Return a relative path. The web/mobile frontend will prepend
-        // its own API origin via getFullImageUrl() / resolveUrl().
-        return '/storage/' . ltrim($this->reference_image, '/');
+        return '/storage/' . ltrim($value, '/');
     }
 
 

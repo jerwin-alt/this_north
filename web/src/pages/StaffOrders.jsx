@@ -13,6 +13,7 @@ import strawberryImage from '../assets/CUSTOMIZE_CAKE5.jpg';
 import SvgDecorationWeb from '../components/SvgDecorationWeb';
 import CakePreviewShared from '../components/CakePreviewShared';
 import { API_ORIGIN } from '../utils/apiBase';
+import { useToast, ToastContainer } from '../hooks/useToast';
 
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
@@ -127,9 +128,13 @@ function getFallbackUrl(elementName) {
 export default function StaffOrders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);   // ← NEW
+  const [isFetching, setIsFetching] = useState(false);    // ← NEW
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState(''); // ← NEW
   const [statusFilter, setStatusFilter] = useState('');
+  const { toast, showToast } = useToast();
 
   const [menuItems, setMenuItems] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -162,6 +167,8 @@ export default function StaffOrders() {
   });
   const [reportSubmitting, setReportSubmitting] = useState(false);
 
+
+
   // ── General Report Loss / Damage Modal State (top-level button) ──
   const [generalReportModal, setGeneralReportModal] = useState({
     show: false,
@@ -182,6 +189,19 @@ export default function StaffOrders() {
   const [generalReportSubmitting, setGeneralReportSubmitting] = useState(false);
   const [generalReportError, setGeneralReportError] = useState('');
 
+
+
+  // ── Custom Cake Report Loss / Damage Modal State ──
+  const [customCakeReportModal, setCustomCakeReportModal] = useState({
+    show: false,
+    order: null,
+    loading: false,
+    bom: [],       // each: { ingredient_id, ingredient_name, unit, quantity_needed, report_quantity, estimated_cost }
+    damage_type: 'spoilage',
+    description: '',
+    submitting: false,
+  });
+
   // ── Pagination State ──
   const [pagination, setPagination] = useState({
     currentPage: 1,
@@ -200,29 +220,39 @@ export default function StaffOrders() {
   });
 
   const fetchOrders = async () => {
-    setLoading(true);
+    if (initialLoad) {
+      setLoading(true);
+    } else {
+      setIsFetching(true);
+    }
+
     try {
       const params = { page: pagination.currentPage, per_page: pagination.perPage };
       if (statusFilter) params.status = statusFilter;
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;   // ← debounced
+
       const res = await axios.get('/staff/orders', { params });
       const ordersData = res.data.orders?.data || res.data.orders || [];
       setOrders(ordersData);
+
       if (res.data.orders && typeof res.data.orders === 'object') {
         const p = res.data.orders;
-        setPagination(prev => ({
+        setPagination((prev) => ({
           ...prev,
           currentPage: p.current_page || 1,
           totalPages: p.last_page || 1,
           totalItems: p.total || 0,
         }));
       }
+
+      if (initialLoad) setInitialLoad(false);
       setError(null);
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || 'Failed to load orders');
     } finally {
       setLoading(false);
+      setIsFetching(false);
     }
   };
 
@@ -233,10 +263,22 @@ export default function StaffOrders() {
     } catch (err) { console.error(err); }
   };
 
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPagination((prev) =>
+        prev.currentPage === 1 ? prev : { ...prev, currentPage: 1 }
+      );
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+
   useEffect(() => {
     fetchOrders();
     fetchMenu();
-  }, [statusFilter, search, pagination.currentPage, pagination.perPage]);
+  }, [statusFilter, debouncedSearch, pagination.currentPage, pagination.perPage]);   // ← search → debouncedSearch
 
   const addItemToCreate = () => setCreateForm(prev => ({
     ...prev, items: [...prev.items, { menu_id: '', quantity: 1 }]
@@ -274,7 +316,7 @@ export default function StaffOrders() {
       });
       fetchOrders();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to create custom cake order');
+      showToast(err.response?.data?.message || 'Failed to create custom cake order', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -291,7 +333,7 @@ export default function StaffOrders() {
       setUploadingPickup(false);
     } catch (err) {
       console.error('Failed to fetch order details', err);
-      alert('Could not load fresh order details, showing cached data.');
+      showToast('Could not load fresh order details, showing cached data.', 'error');
     }
   };
 
@@ -321,9 +363,9 @@ export default function StaffOrders() {
       setViewOrderModal(prev => ({ ...prev, order: res.data.order }));
       setSelectedPickupFiles([]);
       setPickupPreviews([]);
-      alert('Pickup proof images uploaded successfully.');
+      showToast('Pickup proof images uploaded successfully.', 'success');
     } catch (err) {
-      alert(err.response?.data?.message || 'Upload failed');
+      showToast(err.response?.data?.message || 'Upload failed', 'error');
     } finally {
       setUploadingPickup(false);
     }
@@ -334,7 +376,7 @@ export default function StaffOrders() {
   const openReportModal = (order) => {
     const reportableItems = (order.items || []).filter((i) => i.menu_id && i.menu);
     if (reportableItems.length === 0) {
-      alert('This order has no reportable products.');
+      showToast('This order has no reportable products.', 'error');
       return;
     }
     const first = reportableItems[0];
@@ -352,6 +394,10 @@ export default function StaffOrders() {
       },
     });
   };
+
+
+
+
 
   const handleReportItemChange = (itemId) => {
     const item = reportModal.items.find((i) => String(i.id) === String(itemId));
@@ -418,11 +464,116 @@ export default function StaffOrders() {
           description: '',
         },
       });
-      alert('Loss/damage report submitted. Waiting for admin approval.');
+      showToast('Loss/damage report submitted. Waiting for admin approval.', 'success');
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to submit report.');
+      showToast(err.response?.data?.message || 'Failed to submit report.', 'error');
     } finally {
       setReportSubmitting(false);
+    }
+  };
+
+
+  // ═══ CUSTOM CAKE REPORT LOSS / DAMAGE ═══
+  const openCustomCakeReportModal = async (order) => {
+    const customItem = order.items?.find((i) => i.cake_type === 'custom');
+    if (!customItem) {
+      showToast('This order has no custom cake.', 'error');
+      return;
+    }
+
+    setCustomCakeReportModal({
+      show: true,
+      order,
+      loading: true,
+      bom: [],
+      damage_type: 'spoilage',
+      description: '',
+      submitting: false,
+    });
+
+    try {
+      const res = await axios.get(`/staff/orders/${order.id}`);
+      const bomRows = res.data.order?.custom_cake_bom || [];
+
+      if (bomRows.length === 0) {
+        setCustomCakeReportModal((m) => ({ ...m, loading: false }));
+        showToast('This custom cake has no BOM. Ask the admin to add BOM in Edit Custom Cake first.', 'error');
+        return;
+      }
+
+      const bom = bomRows.map((b) => ({
+        ingredient_id: b.ingredient_id,
+        ingredient_name: b.ingredient_name || `Ingredient #${b.ingredient_id}`,
+        unit: b.unit || '',
+        quantity_needed: parseFloat(b.quantity_needed) || 0,
+        report_quantity: '',
+        estimated_cost: '',
+      }));
+
+      setCustomCakeReportModal((m) => ({ ...m, loading: false, bom }));
+    } catch (err) {
+      showToast('Failed to load custom cake BOM.', 'error');
+      setCustomCakeReportModal((m) => ({ ...m, show: false, loading: false }));
+    }
+  };
+
+  // const toggleBomIngredient = (idx) => {
+  //   setCustomCakeReportModal((m) => {
+  //     const bom = [...m.bom];
+  //     bom[idx] = { ...bom[idx], is_checked: !bom[idx].is_checked };
+  //     return { ...m, bom };
+  //   });
+  // };
+
+  const updateBomField = (idx, field, value) => {
+    setCustomCakeReportModal((m) => {
+      const bom = [...m.bom];
+      bom[idx] = { ...bom[idx], [field]: value };
+      return { ...m, bom };
+    });
+  };
+
+  const handleCustomCakeReportSubmit = async (e) => {
+    e.preventDefault();
+    const { order, bom, damage_type, description } = customCakeReportModal;
+    if (!order) return;
+
+    // Only ingredients with a filled-in quantity > 0 are part of the report
+    const selected = bom.filter(
+      (b) => b.report_quantity && parseFloat(b.report_quantity) > 0
+    );
+
+    if (selected.length === 0) {
+      showToast('Enter a loss/damage quantity for at least one ingredient.', 'error');
+      return;
+    }
+
+    setCustomCakeReportModal((m) => ({ ...m, submitting: true }));
+
+    try {
+      await axios.post(
+        '/admin/lost-and-damages',   // on StaffOrders.jsx use: '/staff/lost-and-damages'
+        {
+          order_id: order.id,
+          items: selected.map((b) => ({
+            item_id: Number(b.ingredient_id),
+            quantity: Number(b.report_quantity),
+            unit: b.unit,
+            estimated_cost: Number(b.estimated_cost || 0),
+          })),
+          damage_type,
+          description: description || null,
+        }
+      );
+
+      setCustomCakeReportModal({
+        show: false, order: null, loading: false, bom: [],
+        damage_type: 'spoilage', description: '', submitting: false,
+      });
+      showToast('Custom cake loss/damage report submitted. Waiting for admin approval.', 'success');
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to submit report.', 'error');
+      setCustomCakeReportModal((m) => ({ ...m, submitting: false }));
     }
   };
 
@@ -539,9 +690,9 @@ const addGeneralIngredientRow = () => {
           description: form.description || null,
         });
         setGeneralReportModal((m) => ({ ...m, show: false }));
-        alert('Batch loss/damage report submitted. Waiting for admin approval.');
+        showToast('Loss/damage report submitted. Waiting for admin approval.', 'success');
       } catch (err) {
-        setGeneralReportError(err.response?.data?.message || 'Failed to submit report.');
+        showToast(err.response?.data?.message || 'Failed to submit report.', 'error');
       } finally {
         setGeneralReportSubmitting(false);
       }
@@ -566,9 +717,9 @@ const addGeneralIngredientRow = () => {
         description: form.description || null,
       });
       setGeneralReportModal(prev => ({ ...prev, show: false }));
-      alert('Loss/damage report submitted. Waiting for admin approval.');
+      showToast('Loss/damage report submitted. Waiting for admin approval.', 'success');
     } catch (err) {
-      setGeneralReportError(err.response?.data?.message || 'Failed to submit report.');
+      showToast(err.response?.data?.message || 'Failed to submit report.', 'error');
     } finally {
       setGeneralReportSubmitting(false);
     }
@@ -605,7 +756,7 @@ const addGeneralIngredientRow = () => {
     return pages;
   };
 
-  if (loading) {
+  if (initialLoad) {
     return (
       <div style={{ background: CREAM, minHeight: '100vh' }} className="flex justify-center items-center h-64">
         <div className="flex flex-col items-center gap-3">
@@ -628,6 +779,7 @@ const addGeneralIngredientRow = () => {
   const { currentPage, perPage, totalItems, totalPages } = pagination;
   const startItem = (currentPage - 1) * perPage + 1;
   const endItem = Math.min(currentPage * perPage, totalItems);
+
 
   return (
     <div style={{ background: CREAM, minHeight: '100vh', padding: '36px 28px' }}>
@@ -743,10 +895,23 @@ const addGeneralIngredientRow = () => {
 
         {/* Filters */}
         <div className="fade-in-1 flex flex-wrap gap-4 mb-8">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: MUTED_GRAY }} />
-            <input type="text" placeholder="Search order # or customer name…" value={search} onChange={(e) => setSearch(e.target.value)} className="modal-input w-full pl-10 pr-4 py-2.5 rounded-xl border bg-white text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE }} />
-          </div>
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: MUTED_GRAY }} />
+          <input type="text" placeholder="Search order # or customer name…" value={search} onChange={(e) => setSearch(e.target.value)} className="modal-input w-full pl-10 pr-4 py-2.5 rounded-xl border bg-white text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE }} />
+          {isFetching && (
+            <Loader
+              size={14}
+              className="animate-spin"
+              style={{
+                position: 'absolute',
+                right: 12,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: SAGE,
+              }}
+            />
+          )}
+        </div>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="modal-input px-4 py-2.5 rounded-xl border bg-white text-sm" style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE }}>
             <option value="">All Status</option>
             {Object.keys(statusColors).map((s) => (<option key={s} value={s} className="capitalize">{s}</option>))}
@@ -759,7 +924,7 @@ const addGeneralIngredientRow = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <thead>
                 <tr style={{ background: `linear-gradient(135deg, ${CREAM}, rgba(255,243,217,0.5))`, borderBottom: `1.5px solid ${CREAM}` }}>
-                  {['Order #', 'Customer', 'Date', 'Pickup', 'Total', 'Status', 'Items', 'Actions'].map(col => (
+                  {['Order #', 'Customer', 'Date', 'Pickup', 'Total', 'Status', 'Payment', 'Items', 'Actions'].map(col => (
                     <th key={col} style={{ padding: '13px 20px', textAlign: 'left', fontSize: '0.68rem', fontWeight: 700, color: SAGE, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{col}</th>
                   ))}
                 </tr>
@@ -767,7 +932,7 @@ const addGeneralIngredientRow = () => {
               <tbody>
                 {orders.length === 0 ? (
                   <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '48px 20px', color: MUTED_GRAY }}>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '48px 20px', color: MUTED_GRAY }}>
                       <div style={{ width: 56, height: 56, background: 'rgba(166,162,154,0.1)', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', border: '1.5px dashed rgba(166,162,154,0.3)' }}>
                         <ShoppingBag size={24} style={{ color: MUTED_GRAY, opacity: 0.4 }} />
                       </div>
@@ -777,30 +942,145 @@ const addGeneralIngredientRow = () => {
                 ) : (
                   orders.map((order, idx) => (
                     <tr key={order.id} className="order-row" style={{ borderTop: idx === 0 ? 'none' : `1px solid rgba(242,237,228,0.8)` }}>
-                      <td style={{ padding: '13px 20px', fontWeight: 700, color: SAGE, whiteSpace: 'nowrap', fontSize: '0.85rem' }}>{order.order_number}</td>
+                      {/* 1. Order # */}
+                      <td style={{ padding: '13px 20px', fontWeight: 700, color: SAGE, whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
+                        {order.order_number}
+                      </td>
+
+                      {/* 2. Customer */}
                       <td style={{ padding: '13px 20px' }}>
                         <p style={{ fontWeight: 600, color: SAGE, margin: 0 }}>{order.customer_name}</p>
-                        {order.customer_phone && <p style={{ fontSize: '0.72rem', color: MUTED_GRAY, margin: 0 }}>{order.customer_phone}</p>}
+                        {order.customer_phone && (
+                          <p style={{ fontSize: '0.72rem', color: MUTED_GRAY, margin: 0 }}>{order.customer_phone}</p>
+                        )}
                       </td>
-                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{formatShortDate(order.order_date)}</td>
+
+                      {/* 3. Date */}
+                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                        {formatShortDate(order.order_date)}
+                      </td>
+
+                      {/* 4. Pickup */}
                       <td style={{ padding: '13px 20px', whiteSpace: 'nowrap' }}>
                         {order.pickup_date ? (
                           <div>
                             <span style={{ color: SAGE, fontWeight: 600 }}>{formatDisplayDate(order.pickup_date)}</span>
-                            {order.pickup_time && <span style={{ color: MUTED_GRAY, marginLeft: 4 }}>{order.pickup_time.slice(0, 5)}</span>}
+                            {order.pickup_time && (
+                              <span style={{ color: MUTED_GRAY, marginLeft: 4 }}>{order.pickup_time.slice(0, 5)}</span>
+                            )}
                           </div>
-                        ) : <span style={{ color: MUTED_GRAY, fontSize: '0.78rem' }}>—</span>}
+                        ) : (
+                          <span style={{ color: MUTED_GRAY, fontSize: '0.78rem' }}>—</span>
+                        )}
                       </td>
-                      <td style={{ padding: '13px 20px', fontWeight: 700, color: SAGE, whiteSpace: 'nowrap' }}>₱{parseFloat(order.total_amount).toLocaleString()}</td>
+
+                      {/* 5. Total */}
+                      <td style={{ padding: '13px 20px', fontWeight: 700, color: SAGE, whiteSpace: 'nowrap' }}>
+                        ₱{parseFloat(order.total_amount).toLocaleString()}
+                      </td>
+                      {/* ── Status cell ── */}
                       <td style={{ padding: '13px 20px' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 600, background: statusBg[order.status] || 'rgba(166,162,154,0.1)', color: statusColors[order.status] || MUTED_GRAY, border: `1px solid ${statusColors[order.status]}33`, textTransform: 'capitalize' }}>
-                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: statusColors[order.status] || MUTED_GRAY, display: 'inline-block' }} /> {order.status}
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            padding: '3px 10px',
+                            borderRadius: 999,
+                            fontSize: '0.68rem',
+                            fontWeight: 600,
+                            background: statusBg[order.status] || 'rgba(166,162,154,0.1)',
+                            color: statusColors[order.status] || MUTED_GRAY,
+                            border: `1px solid ${statusColors[order.status]}33`,
+                            textTransform: 'capitalize',
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 5,
+                              height: 5,
+                              borderRadius: '50%',
+                              background: statusColors[order.status] || MUTED_GRAY,
+                              display: 'inline-block',
+                            }}
+                          />
+                          {order.status}
                         </span>
                       </td>
+
+                      {/* ── Payment cell — sibling, NOT nested ── */}
+                      <td style={{ padding: '13px 20px' }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            padding: '3px 10px',
+                            borderRadius: 999,
+                            fontSize: '0.68rem',
+                            fontWeight: 600,
+                            background:
+                              order.payment_status === 'paid'
+                                ? 'rgba(52,196,104,0.1)'
+                                : order.payment_status === 'partially_paid'
+                                  ? 'rgba(234,179,8,0.1)'
+                                  : 'rgba(239,68,68,0.08)',
+                            color:
+                              order.payment_status === 'paid'
+                                ? '#1a7a3c'
+                                : order.payment_status === 'partially_paid'
+                                  ? '#92670a'
+                                  : '#c0392b',
+                            border: `1px solid ${
+                              order.payment_status === 'paid'
+                                ? 'rgba(52,196,104,0.2)'
+                                : order.payment_status === 'partially_paid'
+                                  ? 'rgba(234,179,8,0.2)'
+                                  : 'rgba(239,68,68,0.15)'
+                            }`,
+                            textTransform: 'capitalize',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 5,
+                              height: 5,
+                              borderRadius: '50%',
+                              background:
+                                order.payment_status === 'paid'
+                                  ? '#34c468'
+                                  : order.payment_status === 'partially_paid'
+                                    ? '#D4A03D'
+                                    : '#ef4444',
+                              display: 'inline-block',
+                              flexShrink: 0,
+                            }}
+                          />
+                          {(order.payment_status || 'unpaid').replace('_', ' ')}
+                        </span>
+                      </td>
+
+                      {/* ── Items cell ── */}
                       <td style={{ padding: '13px 20px' }}>
                         <div className="flex flex-wrap gap-1">
-                          {order.items?.map(item => (
-                            <span key={item.id} style={{ display: 'inline-block', background: 'rgba(79,95,82,0.07)', color: SAGE, borderRadius: 5, padding: '2px 6px', fontSize: '0.72rem', marginBottom: 2 }}>{item.menu?.name || 'Custom Cake'} ×{item.quantity}</span>
+                          {order.items?.map((item) => (
+                            <span
+                              key={item.id}
+                              style={{
+                                display: 'inline-block',
+                                background: 'rgba(79,95,82,0.07)',
+                                color: SAGE,
+                                borderRadius: 5,
+                                padding: '2px 6px',
+                                fontSize: '0.72rem',
+                                marginBottom: 2,
+                              }}
+                            >
+                              {item.menu?.name || 'Custom Cake'}
+                              {item.drink_size?.size_name ? ` (${item.drink_size.size_name})` : ''}
+                              {' ×'}{item.quantity}
+                            </span>
                           ))}
                         </div>
                       </td>
@@ -835,9 +1115,16 @@ const addGeneralIngredientRow = () => {
 
                           {/* ── Row-level Report Loss / Damage ── */}
                           {['confirmed', 'preparing', 'ready', 'completed'].includes(order.status) &&
-                            order.items?.some((i) => i.menu_id) && (
+                            (order.items?.some((i) => i.menu_id) || order.items?.some((i) => i.cake_type === 'custom')) && (
                               <button
-                                onClick={() => openReportModal(order)}
+                                onClick={() => {
+                                  const hasCustom = order.items?.some((i) => i.cake_type === 'custom');
+                                  if (hasCustom) {
+                                    openCustomCakeReportModal(order);
+                                  } else {
+                                    openReportModal(order);
+                                  }
+                                }}
                                 className="action-btn"
                                 style={{
                                   display: 'inline-flex', alignItems: 'center', gap: '3px',
@@ -1164,7 +1451,9 @@ const addGeneralIngredientRow = () => {
 
 
                             {/* Customer Reference Image — ONLY for customer mobile custom cakes */}
-                            {viewOrderModal.order.customer_id != null && design?.reference_image_url && (
+                            {viewOrderModal.order.customer_id != null &&
+                            design?.reference_image_url &&
+                            !design.reference_image_url.includes('payment_proofs') && (
                               <div className="mt-4">
                                 <h4 style={{ fontWeight: 700, color: SAGE, marginBottom: 8, fontSize: '0.9rem' }}>
                                   Customer Reference Image
@@ -1749,9 +2038,202 @@ const addGeneralIngredientRow = () => {
                 </button>
               </div>
             </form>
+          </div>  
+        </div>
+      )}  
+
+
+
+      {/* ═══ Custom Cake Report Loss / Damage Modal ═══ */}
+      {customCakeReportModal.show && customCakeReportModal.order && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(30,35,30,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16, backdropFilter: 'blur(4px)' }}>
+          <div className="anim-modal" style={{ background: '#fff', borderRadius: 22, width: '100%', maxWidth: 620, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(79,95,82,0.18)', border: '1px solid rgba(242,237,228,0.8)' }}>
+            {/* Header */}
+            <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: `1px solid ${CREAM}`, background: `linear-gradient(135deg, rgba(122,91,138,0.06), rgba(255,243,217,0.3))`, backdropFilter: 'blur(8px)' }}>
+              <div className="flex items-center gap-3">
+                <div style={{ width: 34, height: 34, background: 'linear-gradient(135deg, #7A5B8A, #5B3A6A)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 3px 10px rgba(122,91,138,0.3)' }}>
+                  <AlertTriangle size={16} color="#fff" />
+                </div>
+                <div>
+                  <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.05rem' }}>
+                    Report Custom Cake Loss / Damage
+                  </h3>
+                  <p style={{ color: MUTED_GRAY, fontSize: '0.72rem', marginTop: 2 }}>
+                    Order {customCakeReportModal.order.order_number}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCustomCakeReportModal((m) => ({ ...m, show: false }))}
+                style={{ color: MUTED_GRAY, padding: 7, borderRadius: 10, background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            {customCakeReportModal.loading ? (
+              <div style={{ padding: 40, display: 'flex', justifyContent: 'center' }}>
+                <Loader className="animate-spin" size={26} style={{ color: SAGE }} />
+              </div>
+            ) : (
+              <form onSubmit={handleCustomCakeReportSubmit} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* BOM Ingredients — one row per ingredient, quantity blank by default */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 10 }}>
+                    Ingredients Lost / Damaged *
+                  </label>
+                  <p style={{ color: MUTED_GRAY, fontSize: '0.72rem', marginBottom: 12 }}>
+                    Enter the quantity lost or damaged for any ingredient below. Leave blank for ingredients that were not affected.
+                  </p>
+
+                  {customCakeReportModal.bom.map((row, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        marginBottom: 8,
+                        background: 'rgba(242,237,228,0.35)',
+                        border: '1px solid rgba(166,162,154,0.2)',
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, color: SAGE, fontSize: '0.88rem' }}>
+                          {row.ingredient_name}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: MUTED_GRAY, marginTop: 2 }}>
+                          BOM requires: {row.quantity_needed} {row.unit}
+                        </div>
+                      </div>
+
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={row.report_quantity}
+                        onChange={(e) => updateBomField(idx, 'report_quantity', e.target.value)}
+                        placeholder="Qty"
+                        className="modal-input"
+                        style={{
+                          width: 90,
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          border: '1px solid rgba(166,162,154,0.3)',
+                          background: '#fff',
+                          color: SAGE,
+                          textAlign: 'center',
+                          fontSize: '0.85rem',
+                        }}
+                      />
+
+                      <span
+                        style={{
+                          minWidth: 55,
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          background: 'rgba(79,95,82,0.08)',
+                          color: SAGE,
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          textAlign: 'center',
+                          border: '1px solid rgba(79,95,82,0.15)',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {row.unit || '—'}
+                      </span>
+
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={row.estimated_cost}
+                        onChange={(e) => updateBomField(idx, 'estimated_cost', e.target.value)}
+                        placeholder="₱ Cost"
+                        className="modal-input"
+                        style={{
+                          width: 100,
+                          padding: '8px 10px',
+                          borderRadius: 10,
+                          border: '1px solid rgba(166,162,154,0.3)',
+                          background: '#fff',
+                          color: SAGE,
+                          textAlign: 'center',
+                          fontSize: '0.85rem',
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Damage Type */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Damage Type *
+                  </label>
+                  <select
+                    value={customCakeReportModal.damage_type}
+                    onChange={(e) => setCustomCakeReportModal((m) => ({ ...m, damage_type: e.target.value }))}
+                    required
+                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa', cursor: 'pointer' }}
+                  >
+                    <option value="spoilage">Spoilage</option>
+                    <option value="breakage">Breakage</option>
+                    <option value="expired">Expired</option>
+                    <option value="misproduction">Misproduction</option>
+                  </select>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Description (Optional)
+                  </label>
+                  <textarea
+                    value={customCakeReportModal.description}
+                    onChange={(e) => setCustomCakeReportModal((m) => ({ ...m, description: e.target.value }))}
+                    rows={3}
+                    placeholder="Explain what happened…"
+                    className="modal-input w-full px-3.5 py-2.5 rounded-xl border text-sm resize-none"
+                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: SAGE, background: '#fafafa' }}
+                  />
+                </div>
+
+                <div className="divider-line" />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                  <button
+                    type="button"
+                    onClick={() => setCustomCakeReportModal((m) => ({ ...m, show: false }))}
+                    className="sec-btn px-5 py-2.5 rounded-xl border text-sm font-medium"
+                    style={{ borderColor: 'rgba(166,162,154,0.3)', color: MUTED_GRAY, background: 'transparent' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={customCakeReportModal.submitting}
+                    className="primary-btn flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-50"
+                    style={{ background: 'linear-gradient(135deg, #7A5B8A, #5B3A6A)' }}
+                  >
+                    {customCakeReportModal.submitting ? <Loader size={15} className="animate-spin" /> : <AlertTriangle size={15} />}
+                    {customCakeReportModal.submitting ? 'Submitting…' : 'Submit Report'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
+
+        {/* ══ Toast (auto-dismissing notification) ══ */}
+        <ToastContainer toast={toast} />
+
+
     </div>
   );
 }

@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use App\Models\Discount;
 use App\Models\Feedback;
+use App\Events\OrderCreated;
+
+
 
 class CustomerOrderController extends Controller
 {
@@ -321,6 +324,8 @@ class CustomerOrderController extends Controller
             ]);
 
             DB::commit();
+
+            event(new OrderCreated($order->load('items.menu', 'items.customDesign')));
 
             return response()->json([
                 'message' => 'Order placed successfully. Please wait for admin approval.',
