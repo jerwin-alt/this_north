@@ -19,6 +19,8 @@ interface User {
   phone: string;
   role: string;
   signature_stamps: number;
+  verification_type?: 'senior_citizen' | 'pwd' | null;         // ← ADD
+  verification_status?: 'pending' | 'approved' | 'rejected';   // ← ADD
 }
 
 interface LoginData { email: string; password: string; }

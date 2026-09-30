@@ -165,10 +165,11 @@ interface PlacedDecoration {
   elementId: number;
   x: number;
   y: number;
-  scale?: number;                    // NEW — default 1
-  color?: string | null;             // NEW — single-color tint
-  colors?: Record<string, string>;   // NEW — per-part tint
-  tierIndex?: number;   
+  scale?: number;
+  rotation?: number;   // ← ADD (degrees, 0..360)
+  color?: string | null;
+  colors?: Record<string, string>;
+  tierIndex?: number;
   element: DecorationElement;
 }
 
@@ -234,6 +235,8 @@ export default function CakeCustomization() {
   const [orderNotes, setOrderNotes] = useState('');
   const [placingOrder, setPlacingOrder] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const [selectedDecorationId, setSelectedDecorationId] = useState<string | null>(null);
 
   // ---- Draft design (for order placement) ----
   const [customCakeDraft, setCustomCakeDraft] = useState<{
@@ -407,6 +410,17 @@ export default function CakeCustomization() {
     });
   }, [resetDrag, safeSetPlacedDecorations]);
 
+
+  const rotateDecoration = useCallback((id: string, delta: number) => {
+    safeSetPlacedDecorations((prev) =>
+      prev.map((d) =>
+        d.id === id
+          ? { ...d, rotation: (((Number(d.rotation) || 0) + delta) % 360 + 360) % 360 }
+          : d
+      )
+    );
+  }, [safeSetPlacedDecorations]);
+
   // ---- Gesture creators ----
   const createAddGesture = (element: DecorationElement) => {
     return Gesture.Pan()
@@ -423,7 +437,7 @@ export default function CakeCustomization() {
   };
 
   const createMoveGesture = (dec: PlacedDecoration) => {
-    return Gesture.Pan()
+    const pan = Gesture.Pan()
       .onStart(() => {
         runOnJS(safeSetIsGhostVisible)(true);
       })
@@ -434,6 +448,15 @@ export default function CakeCustomization() {
       .onEnd((event) => {
         runOnJS(moveDecoration)(dec.id, event.absoluteX, event.absoluteY);
       });
+
+    const tap = Gesture.Tap()
+      .onEnd(() => {
+        runOnJS(setSelectedDecorationId)(dec.id);
+      });
+
+    // Race: whichever finishes first wins.
+    // Tap → select. Pan → move.
+    return Gesture.Race(tap, pan);
   };
 
   // ---- Fetch data ----
@@ -554,6 +577,10 @@ export default function CakeCustomization() {
 
 
 
+  
+
+
+
   const pickReferenceImage = async () => {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (status !== 'granted') {
@@ -623,6 +650,7 @@ const removeReferenceImage = () => setReferenceImage(null);
           x: d.x,
           y: d.y,
           scale: d.scale ?? 1,
+          rotation: d.rotation ?? 0,   // ← ADD
           color: d.color ?? null,
           colors: d.colors ?? null,
           tier_index: d.tierIndex ?? 0,
@@ -805,12 +833,13 @@ const removeReferenceImage = () => setReferenceImage(null);
 
           {/* ── Regular decorations ── */}
           {decorations.filter((d) => !isIcing(d.element)).map((dec) => {
-            // ── Regular decorations ──
             const gesture = createMoveGesture(dec);
             const decSize = 40 * (dec.scale ?? 1);
-            // dec.x / dec.y are canonical (0..400). Convert to pixels for display.
             const displayX = (dec.x / 400) * CANVAS_SIZE;
             const displayY = (dec.y / 400) * CANVAS_SIZE;
+            const rotation = Number(dec.rotation) || 0;
+            const isSelected = selectedDecorationId === dec.id;
+
             return (
               <GestureDetector key={dec.id} gesture={gesture}>
                 <Animated.View
@@ -824,19 +853,60 @@ const removeReferenceImage = () => setReferenceImage(null);
                     },
                   ]}
                 >
-                  <SvgDecoration
-                    svgSource={resolveUrl(dec.element.svg_source)}
-                    imageUrl={getDecorationSource(dec.element.element_name, dec.element.image_url)}
-                    size={decSize}
-                    color={dec.color}
-                    colors={dec.colors}
-                  />
+                  {/* ── Rotated decoration ── */}
+                  <View
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      transform: [{ rotate: `${rotation}deg` }],
+                    }}
+                    pointerEvents="none"
+                  >
+                    <SvgDecoration
+                      svgSource={resolveUrl(dec.element.svg_source)}
+                      imageUrl={getDecorationSource(dec.element.element_name, dec.element.image_url)}
+                      size={decSize}
+                      color={dec.color}
+                      colors={dec.colors}
+                    />
+                  </View>
+
+                  {/* ── Selection ring ── */}
+                  {isSelected && (
+                    <View pointerEvents="none" style={styles.selectedRing} />
+                  )}
+
+                  {/* ── Delete button (always visible) ── */}
                   <TouchableOpacity
                     style={styles.removeDecorationBtn}
-                    onPress={() => removeDecoration(dec.id)}
+                    onPress={() => {
+                      removeDecoration(dec.id);
+                      if (isSelected) setSelectedDecorationId(null);
+                    }}
                   >
                     <Ionicons name="close-circle" size={20} color="#EF4444" />
                   </TouchableOpacity>
+
+                  {/* ── Rotate buttons — only when this decoration is selected ── */}
+                  {isSelected && (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.rotateBtn, { left: -32, top: decSize / 2 - 12 }]}
+                        onPress={() => rotateDecoration(dec.id, -15)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="arrow-undo" size={14} color="#fff" />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.rotateBtn, { right: -32, top: decSize / 2 - 12 }]}
+                        onPress={() => rotateDecoration(dec.id, 15)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="arrow-redo" size={14} color="#fff" />
+                      </TouchableOpacity>
+                    </>
+                  )}
                 </Animated.View>
               </GestureDetector>
             );
@@ -1993,5 +2063,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: SAGE,
+  },
+
+
+    selectedRing: {
+    position: 'absolute',
+    top: -6,
+    left: -6,
+    right: -6,
+    bottom: -6,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#4F5F52',
+    borderStyle: 'dashed',
+  },
+  rotateBtn: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#4F5F52',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
 });

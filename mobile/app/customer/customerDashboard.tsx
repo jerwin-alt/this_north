@@ -18,7 +18,7 @@ import {
   Dimensions,
   ImageBackground,
   StatusBar,
-   AppState, 
+   AppState, Linking,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,6 +43,7 @@ import {
 } from '@/constants/cakeBase';
 import { LogBox } from 'react-native';
 LogBox.ignoreLogs(['Polling error:']);
+
 
 
 // ── Import QR Code image ──
@@ -466,11 +467,10 @@ const CakePreview = memo(({ design, size = 100 }: { design: any; size?: number }
       {/* ── Regular draggable decorations — correct scale ── */}
       {normalDecs.map((dec: any, idx: number) => {
         const scaleFactor = dec.scale ?? 1;
-        // Base decoration is 40px in the 340px main canvas.
-        // Scale proportionally to whatever size this preview is.
         const decSize = (40 / CANVAS_SIZE) * size * scaleFactor;
         const x = (dec.x / CANVAS_SIZE) * size;
         const y = (dec.y / CANVAS_SIZE) * size;
+        const rotation = Number(dec.rotation) || 0;
         const source = getDecorationSource(dec.element_name, dec.image_url);
 
         return (
@@ -482,6 +482,7 @@ const CakePreview = memo(({ design, size = 100 }: { design: any; size?: number }
               top: y - decSize / 2,
               width: decSize,
               height: decSize,
+              transform: [{ rotate: `${rotation}deg` }],
             }}
           >
             <SvgDecoration
@@ -1952,11 +1953,11 @@ export default function CustomerDashboard() {
     }
 
     // Find lowest-priced item (by unit price * quantity)
-    let lowestItem = null;
+    let lowestItem: CartItem | null = null;
     let lowestTotal = Infinity;
     let lowestIndex = -1;
-    cartItems.forEach((item, index) => {
-      const total = item.unitPrice * item.quantity;
+    cartItems.forEach((item: CartItem, index: number) => {
+      const total = (item.unitPrice ?? 0) * item.quantity;
       if (total < lowestTotal) {
         lowestTotal = total;
         lowestItem = item;
@@ -1980,9 +1981,11 @@ export default function CustomerDashboard() {
     return {
       discountedCartTotal: discountedTotal,
       discountAmount: discountAmountCalculated,
-      discountedItemId: lowestItem.id,
+      discountedItemId: lowestItem?.id ?? null, 
+      
       discountAppliedToAnyItem: true,
     };
+    
   }, [cartItems, cartTotal, discountEligibility]);
 
   // ── Tab content renderers ──
@@ -2212,8 +2215,8 @@ export default function CustomerDashboard() {
                     <StatusBadge status={order.status} />
                   </View>
                   {order.items && order.items.length > 0 && (
-                    <View style={s.orderItems}>
-                      {order.items.map((item, idx) => {
+                  <View style={s.orderItems}>
+                    {order.items.map((item: any, idx: number) => {
                         const menu = item.menu;
                         const isCustom = item.cake_type === 'custom' && item.custom_design;
                         return (
@@ -2417,6 +2420,27 @@ export default function CustomerDashboard() {
     );
   }, [notificationsList, unreadCount, refreshing, onRefresh, clearAllNotifications, handleNotificationPress]);
 
+  const openSocialLink = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch (err) {
+      console.warn('openSocialLink failed:', err);
+      Alert.alert('Unable to open link');
+    }
+  };
+
+  const openPhoneNumber = async (phone: string) => {
+    try {
+      // Do NOT use Linking.canOpenURL here — on Android 11+ it returns
+      // false for 'tel:' even when the dialer is available. Just call
+      // openURL directly and let the OS handle it.
+      await Linking.openURL(`tel:${phone}`);
+    } catch (err) {
+      console.warn('openPhoneNumber failed:', err);
+      Alert.alert('Unable to open dialer');
+    }
+  };
+
   const renderProfileTab = useCallback(() => {
     const isLoyaltyInactive = !loyaltySettings.is_30_percent_active || !loyaltySettings.is_10_star_active;
 
@@ -2526,6 +2550,43 @@ export default function CustomerDashboard() {
           <Text style={s.stampsHint}>Collect 10 stamps to earn a reward</Text>
         </View>
 
+
+        {/* ═══ Contact Footer ═══ */}
+        <View style={s.contactFooter}>
+          <Text style={s.contactFooterTitle}>Contact the Admin</Text>
+
+          <View style={s.contactFooterRow}>
+            <TouchableOpacity
+              style={s.contactFooterBtn}
+              activeOpacity={0.7}
+              onPress={() => openSocialLink('https://www.facebook.com/share/1PEW63dpkz/')}
+              accessibilityRole="link"
+              accessibilityLabel="North Cakes Facebook"
+            >
+              <MaterialCommunityIcons name="facebook" size={22} color={SAGE} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={s.contactFooterBtn}
+              activeOpacity={0.7}
+              onPress={() => openSocialLink('https://www.instagram.com/northcakes_cdo?stkn=MXJlc29iNGkxdWJ4Ng==')}
+              accessibilityRole="link"
+              accessibilityLabel="North Cakes Instagram"
+            >
+              <MaterialCommunityIcons name="instagram" size={22} color={SAGE} />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => openPhoneNumber('09929374547')}
+            style={s.contactFooterPhoneWrap}
+          >
+            <Ionicons name="call-outline" size={14} color={MUTED_GRAY} />
+            <Text style={s.contactFooterPhone}>09929374547</Text>
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity
           style={s.logoutBtn}
           activeOpacity={0.88}
@@ -2534,9 +2595,12 @@ export default function CustomerDashboard() {
             router.replace("/login");
           }}
         >
-          <Ionicons name="log-out-outline" size={18} color="#EF4444" />
-          <Text style={s.logoutText}>Sign Out</Text>
-        </TouchableOpacity>
+
+        <Ionicons name="log-out-outline" size={18} color="#EF4444" />
+        <Text style={s.logoutText}>Sign Out</Text>
+      </TouchableOpacity>
+
+
       </ScrollView>
     );
   }, [initials, user, refreshing, onRefresh, logout, loyaltySettings]);
@@ -6223,4 +6287,69 @@ const s = StyleSheet.create({
     fontWeight: '600',
     color: SAGE,
   },
+  contactFooter: {
+  marginTop: 20,
+  marginBottom: 32,     // extra bottom space so it clears the tab bar
+  alignItems: 'center',
+  paddingVertical: 18,
+  paddingHorizontal: 16,
+  backgroundColor: '#fff',
+  borderRadius: 16,
+  borderWidth: 1.5,
+  borderColor: 'rgba(242,237,228,0.9)',
+  shadowColor: SAGE,
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.05,
+  shadowRadius: 8,
+  elevation: 2,
+},
+contactFooterTitle: {
+  fontSize: 12,
+  fontWeight: '700',
+  color: MUTED_GRAY,
+  letterSpacing: 0.9,
+  textTransform: 'uppercase',
+  marginBottom: 14,
+},
+contactFooterRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 14,
+  marginBottom: 12,
+},
+contactFooterBtn: {
+  width: 48,
+  height: 48,
+  borderRadius: 24,
+  backgroundColor: 'rgba(79,95,82,0.08)',
+  borderWidth: 1,
+  borderColor: 'rgba(79,95,82,0.12)',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+contactFooterPhoneWrap: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 6,
+  paddingVertical: 6,
+  paddingHorizontal: 12,
+  borderRadius: 999,
+  backgroundColor: 'rgba(166,162,154,0.08)',
+},
+contactFooterPhone: {
+  fontSize: 13,
+  fontWeight: '700',
+  color: SAGE,
+  letterSpacing: 0.4,
+},
+
+timelineLine: {
+  position: 'absolute',
+  top: -6,
+  left: 13,
+  width: 2,
+  height: 12,
+  zIndex: 0,
+},
 });

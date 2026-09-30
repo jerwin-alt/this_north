@@ -113,49 +113,47 @@ export default function CakePreviewShared({
       />
 
       {/* Non-icing decorations positioned by (x, y) */}
-      {nonIcing.map((dec, idx) => {
+    {nonIcing.map((dec, idx) => {
         const scaleFactor = dec.scale ?? 1;
         const decSize = (40 / CANVAS_SIZE) * size * scaleFactor;
         const x = (dec.x / CANVAS_SIZE) * size;
         const y = (dec.y / CANVAS_SIZE) * size;
+        const rotation = Number(dec.rotation) || 0;   // ← ADD THIS LINE
 
         const imageUrl =
-          typeof getFullImageUrl === 'function' ? getFullImageUrl(dec.image_url) : null;
+            typeof getFullImageUrl === 'function' ? getFullImageUrl(dec.image_url) : null;
         const fallbackUrl =
-          typeof getFallbackUrl === 'function' ? getFallbackUrl(dec.element_name) : null;
+            typeof getFallbackUrl === 'function' ? getFallbackUrl(dec.element_name) : null;
 
-        // ─── NEW: resolve relative /storage/... paths to full API URLs ───
-        // The backend returns svg_source as a relative path (e.g. /storage/decorations/cherry.svg).
-        // Without this, the browser resolves it against the FRONTEND origin
-        // (http://localhost:5173/storage/...) → 404 → decoration not rendered.
         const svgSourceResolved =
-          dec.svg_source && typeof getFullImageUrl === 'function'
+            dec.svg_source && typeof getFullImageUrl === 'function'
             ? getFullImageUrl(dec.svg_source)
             : dec.svg_source;
 
         return (
-          <div
+            <div
             key={idx}
             style={{
-              position: 'absolute',
-              left: x - decSize / 2,
-              top: y - decSize / 2,
-              width: decSize,
-              height: decSize,
-              pointerEvents: 'none',
+                position: 'absolute',
+                left: x - decSize / 2,
+                top: y - decSize / 2,
+                width: decSize,
+                height: decSize,
+                pointerEvents: 'none',
+                transform: `rotate(${rotation}deg)`,   // ← ADD THIS LINE
             }}
-          >
+            >
             <SvgDecorationWeb
-              svgSource={svgSourceResolved}
-              imageUrl={imageUrl}
-              fallbackUrl={fallbackUrl}
-              size={decSize}
-              color={dec.color}
-              colors={dec.colors}
+                svgSource={svgSourceResolved}
+                imageUrl={imageUrl}
+                fallbackUrl={fallbackUrl}
+                size={decSize}
+                color={dec.color}
+                colors={dec.colors}
             />
-          </div>
+            </div>
         );
-      })}
+        })}
     </div>
   );
 }

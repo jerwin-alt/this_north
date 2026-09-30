@@ -72,6 +72,7 @@ class CustomDesign extends Model
                 'x'              => $dec['x'] ?? 0,
                 'y'              => $dec['y'] ?? 0,
                 'scale'          => $dec['scale'] ?? 1,
+                'rotation'       => $dec['rotation'] ?? 0, 
                 'color'          => $dec['color'] ?? null,
                 'colors'         => $dec['colors'] ?? null,
                 'tier_index'     => $dec['tier_index'] ?? 0,           // ← NEW
