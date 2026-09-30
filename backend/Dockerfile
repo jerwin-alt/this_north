@@ -14,7 +14,7 @@ WORKDIR /var/www/html
 COPY . .
 
 # ── NEW: save uploads as a seed, then recreate the (empty) public folder ──
-RUN mv storage/app/public /var/www/html/storage-seed
+RUN mkdir -p storage/app/public && mv storage/app/public /var/www/html/storage-seed
 RUN mkdir -p storage/app/public
 # ── end NEW ──
 
