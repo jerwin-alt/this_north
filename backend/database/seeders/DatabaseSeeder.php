@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder {
         $this->call(CakeSizesSeeder::class);
         $this->call(SvgDecorationsSeeder::class);
         $this->call(DiscountSeeder::class); 
+        $this->call(HistoricalDataSeeder::class); 
     }
 
 
