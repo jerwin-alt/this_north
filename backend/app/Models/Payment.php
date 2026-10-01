@@ -25,6 +25,7 @@ class Payment extends Model
         'change_amount',
         'payment_date',
         'reference_number',
+        'proof_image',   
         'proof_image',          // <-- added for payment proof
         'payment_status',
         'processed_by',
