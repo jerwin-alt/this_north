@@ -85,10 +85,10 @@ if (typeof Pusher === 'function') {
 // 3. Env-driven Reverb config
 // ─────────────────────────────────────────────────────────────
 const REVERB_KEY    = process.env.EXPO_PUBLIC_REVERB_APP_KEY || 't34yzindehe8rurmywzi';
-const REVERB_HOST   = process.env.EXPO_PUBLIC_REVERB_HOST    || '10.195.159.170';
+const REVERB_HOST   = process.env.EXPO_PUBLIC_REVERB_HOST    || '10.23.70.170';
 const REVERB_PORT   = Number(process.env.EXPO_PUBLIC_REVERB_PORT || 8080);
 const REVERB_SCHEME = process.env.EXPO_PUBLIC_REVERB_SCHEME  || 'http';
-const API_BASE      = process.env.EXPO_PUBLIC_API_URL        || 'http://10.195.159.170:8000';
+const API_BASE      = process.env.EXPO_PUBLIC_API_URL        || 'http://10.23.70.170:8000';
 
 // ─────────────────────────────────────────────────────────────
 // 4. Singleton Echo instance
