@@ -24,6 +24,9 @@ use App\Http\Controllers\AdminLoyaltyController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\AdminLostAndDamageController;
 use App\Http\Controllers\StaffLostAndDamageController;
+use App\Http\Controllers\RecycleBinController; 
+use App\Http\Controllers\AdminCustomerController;
+
 
 Route::post('/register',   [AuthController::class, 'register']);
 Route::post('/login',      [AuthController::class, 'login']);
@@ -62,6 +65,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/loyalty/settings', [App\Http\Controllers\AdminLoyaltyController::class, 'settings']);
     Route::get('/loyalty/settings', [AdminLoyaltyController::class, 'settings']);
     Route::get('/customer/discount-eligibility', [CustomerOrderController::class, 'discountEligibility']);
+
+    
+});
+
+
+// Recycle Bin Routes (Protected by Sanctum and your existing Admin Middleware)
+Route::middleware(['auth:sanctum', 'admin'])->prefix('admin/recycle-bin')->group(function () {
+    Route::get('/', [RecycleBinController::class, 'index']);
+    Route::post('/restore', [RecycleBinController::class, 'restore']);
+    Route::post('/bulk-restore', [RecycleBinController::class, 'bulkRestore']);
 });
 
 Route::middleware(['auth:sanctum', 'admin'])->group(function () {
@@ -187,6 +200,11 @@ Route::middleware(['auth:sanctum', 'admin'])->group(function () {
     Route::put   ('/admin/lost-and-damages/{id}/approve', [AdminLostAndDamageController::class, 'approve']);
     Route::put   ('/admin/lost-and-damages/{id}/reject',  [AdminLostAndDamageController::class, 'reject']);
     Route::delete('/admin/lost-and-damages/{id}',         [AdminLostAndDamageController::class, 'destroy']);
+
+
+
+    Route::get('/admin/customers/{customerId}/orders', [AdminCustomerController::class, 'getCustomerOrders'])
+        ->whereNumber('customerId');
 
 });
 

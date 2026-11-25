@@ -4,10 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class LostAndDamage extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $table = 'lost_and_damages';
 
@@ -50,6 +51,25 @@ class LostAndDamage extends Model
      * can render a table without extra requests.
      */
     protected $appends = ['item_name', 'item_sku', 'item_type_label', 'order_number', 'parent_item_name'];
+
+
+    // Inside app/Models/LostAndDamage.php
+
+    protected static function booted()
+    {
+        static::deleting(function ($record) {
+            // If this is a parent record, soft-delete all its children too
+            // (Assuming you want them to be deleted together)
+            $record->children()->delete(); 
+        });
+
+        static::restoring(function ($record) {
+            // Restore children that were deleted at the same time
+            $record->children()->onlyTrashed()
+                ->where('deleted_at', '>=', $record->deleted_at)
+                ->restore();
+        });
+    }
 
     // ─── Relationships ──────────────────────────────────────────────
 

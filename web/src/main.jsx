@@ -17,6 +17,7 @@ import Customers from './pages/Customers';
 import AdminSchedule from './pages/AdminSchedule.jsx';
 import Loyalty from './pages/Loyalty.jsx';
 import LostAndDamages from './pages/LostAndDamages.jsx';
+import RecycleBinPage from './pages/RecycleBinPage.jsx'; 
 
 
 import StaffDashboard from './pages/StaffDashboard.jsx';
@@ -48,6 +49,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="lost-and-damages" element={<LostAndDamages />} />  
           <Route path="schedule" element={<AdminSchedule />} />
           <Route path="loyalty" element={<Loyalty />} />
+          <Route path="recycle-bin" element={<RecycleBinPage />} />
           
         </Route>
 

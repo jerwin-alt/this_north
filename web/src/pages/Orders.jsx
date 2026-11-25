@@ -26,6 +26,8 @@ import CakePreviewShared from '../components/CakePreviewShared';
 import { API_ORIGIN } from '../utils/apiBase';
 import { initWebEcho } from '/services/echo';
 
+import Cake3DPreview from '../components/Cake3DPreview'; 
+
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
 const MUTED_GRAY = '#A6A29A';
@@ -1784,16 +1786,10 @@ export default function Orders() {
                               style={{ cursor: 'pointer', display: 'inline-block' }}
                               title="Click to enlarge"
                             >
-                              <CakePreviewShared
-                                design={design}
+                              {/* 👇 REPLACED: Now rendering the 3D Cake instead of the 2D SVG */}
+                              <Cake3DPreview
+                                designData={design}
                                 size={300}
-                                getFullImageUrl={getFullImageUrl}
-                                getFallbackUrl={getFallbackUrl}
-                                emptyState={
-                                  <div className="w-full max-w-[300px] aspect-square flex items-center justify-center bg-gray-100 rounded-lg text-gray-400 text-sm">
-                                    No custom design
-                                  </div>
-                                }
                               />
                             </div>
                             <div className="mt-3 p-3 rounded-lg" style={{ background: CREAM }}>
@@ -1918,8 +1914,8 @@ export default function Orders() {
 
                 {/* ─── Pickup Proof Display ─── */}
                 {viewModal.order.pickup_method === 'rider' &&
-                 viewModal.order.pickup_proof_images_with_urls &&
-                 viewModal.order.pickup_proof_images_with_urls.length > 0 && (
+                  viewModal.order.pickup_proof_images_with_urls &&
+                  viewModal.order.pickup_proof_images_with_urls.length > 0 && (
                   <div className="mt-6">
                     <h4 style={{ fontWeight: 700, color: SAGE, marginBottom: 8 }}>Pickup Proof</h4>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>

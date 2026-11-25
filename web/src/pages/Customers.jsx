@@ -3,25 +3,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users as UsersIcon, Loader, AlertCircle, Search, CheckCircle, XCircle,
-  Image as ImageIcon, Eye, X, CameraOff, CheckCircle2,
+  Image as ImageIcon, Eye, X, CameraOff, CheckCircle2, History, AlertTriangle
 } from 'lucide-react';
 import axios from '/api/axios';
-
+import CustomerOrderHistoryModal from '../components/admin/CustomerOrderHistoryModal';
 import { getFullImageUrl } from '../utils/apiBase';
 
 const SAGE = '#4F5F52';
 const CREAM = '#F2EDE4';
 const MUTED_GRAY = '#A6A29A';
 const SOFT_WHITE = '#FFF3D9';
-
-// Helper to build full image URL – uses the same base URL as your API
-// const getImageUrl = (path) => {
-//   if (!path) return null;
-//   if (path.startsWith('http')) return path;
-//   const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://10.90.129.170:8000';
-//   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-//   return `${baseUrl}${normalizedPath}`;
-// };
 
 // InfoItem component for consistent detail display
 function InfoItem({ label, value }) {
@@ -60,6 +51,11 @@ export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [imageLoadError, setImageLoadError] = useState(false);
+  const [orderHistoryOpen, setOrderHistoryOpen] = useState(false);   
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  // NEW: State for the confirmation modal
+  const [confirmAction, setConfirmAction] = useState({ show: false, type: null, customer: null });
 
   const fetchCustomers = async () => {
     setLoading(true);
@@ -91,6 +87,8 @@ export default function Customers() {
       showToast('Customer approved successfully.', 'success');
     } catch (err) {
       showToast('Approval failed: ' + (err.response?.data?.message || ''), 'error');
+    } finally {
+      setConfirmAction({ show: false, type: null, customer: null }); // Close confirm modal
     }
   };
 
@@ -104,6 +102,8 @@ export default function Customers() {
       showToast('Customer rejected.', 'success');
     } catch (err) {
       showToast('Rejection failed: ' + (err.response?.data?.message || ''), 'error');
+    } finally {
+      setConfirmAction({ show: false, type: null, customer: null }); // Close confirm modal
     }
   };
 
@@ -117,6 +117,9 @@ export default function Customers() {
     setShowModal(false);
     setSelectedCustomer(null);
     setImageLoadError(false);
+    setOrderHistoryOpen(false); 
+    setLightboxOpen(false); 
+    setConfirmAction({ show: false, type: null, customer: null }); // Ensure confirm modal closes too
   };
 
   const filteredCustomers = customers.filter(customer =>
@@ -261,22 +264,29 @@ export default function Customers() {
           boxShadow: '0 2px 12px rgba(79,95,82,0.06)',
           overflow: 'hidden',
         }}>
-          <div className="overflow-x-auto">
-            <table className="cust-table w-full text-sm">
+          <div className="w-full">
+            <table className="cust-table w-full text-sm" style={{ tableLayout: 'fixed' }}>
               <thead>
                 <tr style={{ background: `linear-gradient(135deg, ${CREAM}, rgba(255,243,217,0.5))` }}>
-                  {['Name', 'Email', 'Phone', 'Birth Date', 'Address', 'Verification', 'Stamps', 'Status', 'Actions'].map(col => (
-                    <th key={col} style={{
-                      padding: '13px 20px',
-                      textAlign: 'left',
+                  {[
+                    { label: 'Customer', width: '22%' },
+                    { label: 'Contact', width: '16%' },
+                    { label: 'Address', width: '18%' },
+                    { label: 'Verification', width: '20%' },
+                    { label: 'Status', width: '10%' },
+                    { label: 'Actions', width: '14%', align: 'right' }
+                  ].map(col => (
+                    <th key={col.label} style={{
+                      padding: '14px 16px',
+                      textAlign: col.align || 'left',
                       fontSize: '0.68rem',
                       fontWeight: 700,
                       color: SAGE,
                       letterSpacing: '0.08em',
                       textTransform: 'uppercase',
-                      whiteSpace: 'nowrap',
+                      width: col.width,
                     }}>
-                      {col}
+                      {col.label}
                     </th>
                   ))}
                 </tr>
@@ -284,7 +294,7 @@ export default function Customers() {
               <tbody style={{ borderTop: `1px solid ${CREAM}` }}>
                 {filteredCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: '48px 20px', color: MUTED_GRAY }}>
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '48px 20px', color: MUTED_GRAY }}>
                       <div style={{
                         width: 56, height: 56,
                         background: 'rgba(166,162,154,0.1)',
@@ -302,8 +312,8 @@ export default function Customers() {
                   filteredCustomers.map((customer, idx) => (
                     <tr key={customer.id} style={{ borderTop: idx === 0 ? 'none' : `1px solid rgba(242,237,228,0.8)` }}>
                       
-                      {/* Name */}
-                      <td style={{ padding: '13px 20px' }}>
+                      {/* 1. Customer (Avatar, Name, Email) */}
+                      <td style={{ padding: '14px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div style={{
                             width: 34, height: 34,
@@ -316,41 +326,40 @@ export default function Customers() {
                           }}>
                             {(customer.first_name?.[0] || '')}{(customer.last_name?.[0] || '')}
                           </div>
-                          <span style={{ fontWeight: 600, color: SAGE, fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-                            {customer.first_name} {customer.last_name}
-                          </span>
+                          <div style={{ minWidth: 0 }}>
+                            <p style={{ fontWeight: 600, color: SAGE, fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {customer.first_name} {customer.last_name}
+                            </p>
+                            <p style={{ color: MUTED_GRAY, fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={customer.email}>
+                              {customer.email || '—'}
+                            </p>
+                          </div>
                         </div>
                       </td>
 
-                      {/* Email */}
-                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.82rem' }}>
-                        {customer.email}
+                      {/* 2. Contact (Phone, Birth Date) */}
+                      <td style={{ padding: '14px 16px' }}>
+                        <p style={{ color: SAGE, fontSize: '0.8rem', fontWeight: 500 }}>{customer.phone || '—'}</p>
+                        <p style={{ color: MUTED_GRAY, fontSize: '0.75rem' }}>Born: {customer.birth_date || '—'}</p>
                       </td>
 
-                      {/* Phone */}
-                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-                        {customer.phone || '—'}
-                      </td>
-
-                      {/* Birth Date */}
-                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-                        {customer.birth_date || '—'}
-                      </td>
-
-                      {/* Address */}
-                      <td style={{ padding: '13px 20px', color: MUTED_GRAY, fontSize: '0.78rem', maxWidth: 200 }}>
-                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {/* 3. Address (Truncated) */}
+                      <td style={{ padding: '14px 16px' }}>
+                        <p 
+                          style={{ color: MUTED_GRAY, fontSize: '0.78rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          title={customer.address || '—'}
+                        >
                           {customer.address || '—'}
-                        </span>
+                        </p>
                       </td>
 
-                      {/* Verification */}
-                      <td style={{ padding: '13px 20px' }}>
+                      {/* 4. Verification (Type, Status, ID) */}
+                      <td style={{ padding: '14px 16px' }}>
                         {customer.verification_type ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               <span style={{
-                                fontSize: '0.72rem', fontWeight: 600, color: SAGE,
+                                fontSize: '0.68rem', fontWeight: 600, color: SAGE,
                                 background: 'rgba(79,95,82,0.07)',
                                 borderRadius: 5, padding: '1px 7px',
                                 textTransform: 'capitalize',
@@ -361,129 +370,73 @@ export default function Customers() {
                                 display: 'inline-flex', alignItems: 'center', gap: 4,
                                 fontSize: '0.68rem', fontWeight: 600,
                                 padding: '2px 8px', borderRadius: 999,
-                                background: customer.verification_status === 'approved'
-                                  ? 'rgba(52,196,104,0.1)'
-                                  : customer.verification_status === 'rejected'
-                                    ? 'rgba(239,68,68,0.08)'
-                                    : 'rgba(234,179,8,0.1)',
-                                color: customer.verification_status === 'approved'
-                                  ? '#1a7a3c'
-                                  : customer.verification_status === 'rejected'
-                                    ? '#c0392b'
-                                    : '#92670a',
-                                border: `1px solid ${
-                                  customer.verification_status === 'approved'
-                                    ? 'rgba(52,196,104,0.2)'
-                                    : customer.verification_status === 'rejected'
-                                      ? 'rgba(239,68,68,0.15)'
-                                      : 'rgba(234,179,8,0.2)'
-                                }`,
+                                background: customer.verification_status === 'approved' ? 'rgba(52,196,104,0.1)' : customer.verification_status === 'rejected' ? 'rgba(239,68,68,0.08)' : 'rgba(234,179,8,0.1)',
+                                color: customer.verification_status === 'approved' ? '#1a7a3c' : customer.verification_status === 'rejected' ? '#c0392b' : '#92670a',
+                                border: `1px solid ${customer.verification_status === 'approved' ? 'rgba(52,196,104,0.2)' : customer.verification_status === 'rejected' ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.2)'}`,
+                                textTransform: 'capitalize',
                               }}>
-                                <span style={{
-                                  width: 5, height: 5, borderRadius: '50%',
-                                  background: customer.verification_status === 'approved' ? '#34c468'
-                                    : customer.verification_status === 'rejected' ? '#ef4444'
-                                    : '#eab308',
-                                  display: 'inline-block',
-                                }} />
                                 {customer.verification_status}
                               </span>
                             </div>
                             {customer.id_number && (
-                              <p style={{ fontSize: '0.7rem', color: MUTED_GRAY, margin: 0 }}>ID: {customer.id_number}</p>
-                            )}
-                            {customer.image && (
-                              <a
-                                href={getFullImageUrl(customer.image)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{ display: 'flex', alignItems: 'center', gap: 4, color: SAGE, fontSize: '0.7rem', marginTop: 2 }}
-                              >
-                                <ImageIcon size={12} /> View ID
-                              </a>
+                              <span style={{ fontSize: '0.7rem', color: MUTED_GRAY }}>
+                                ID: {customer.id_number}
+                              </span>
                             )}
                           </div>
                         ) : (
-                          <span style={{ color: MUTED_GRAY }}>Regular</span>
+                          <span style={{ fontSize: '0.75rem', color: MUTED_GRAY, fontStyle: 'italic' }}>Regular</span>
                         )}
                       </td>
 
-                      {/* Stamps */}
-                      <td style={{ padding: '13px 20px' }}>
-                        <div style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 5,
-                          background: (customer.signature_stamps ?? 0) > 0
-                            ? 'rgba(79,95,82,0.07)' : 'rgba(166,162,154,0.08)',
-                          borderRadius: 8, padding: '3px 10px',
-                        }}>
-                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: (customer.signature_stamps ?? 0) > 0 ? SAGE : MUTED_GRAY }}>
-                            {customer.signature_stamps ?? 0}
-                          </span>
-                          <span style={{ fontSize: '0.68rem', color: MUTED_GRAY, fontWeight: 500 }}>stamps</span>
+                      {/* 5. Status & Stamps */}
+                      <td style={{ padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                           <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                fontSize: '0.7rem', fontWeight: 600, color: customer.is_active ? '#1a7a3c' : MUTED_GRAY,
+                              }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: customer.is_active ? '#34C468' : MUTED_GRAY, display: 'inline-block' }} />
+                                {customer.is_active ? 'Active' : 'Inactive'}
+                           </span>
+                           <span style={{
+                             fontSize: '0.68rem', fontWeight: 600, color: SAGE, background: 'rgba(79,95,82,0.07)',
+                             borderRadius: 5, padding: '2px 7px'
+                           }}>
+                             {customer.signature_stamps || 0} stamps
+                           </span>
                         </div>
                       </td>
 
-                      {/* Status */}
-                      <td style={{ padding: '13px 20px' }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            padding: '3px 10px', borderRadius: 999,
-                            fontSize: '0.68rem', fontWeight: 600,
-                            background: customer.is_active ? 'rgba(52,196,104,0.1)' : 'rgba(239,68,68,0.08)',
-                            color: customer.is_active ? '#1a7a3c' : '#c0392b',
-                            border: `1px solid ${customer.is_active ? 'rgba(52,196,104,0.2)' : 'rgba(239,68,68,0.15)'}`,
-                          }}>
-                            <span style={{
-                              width: 5, height: 5, borderRadius: '50%',
-                              background: customer.is_active ? '#34c468' : '#ef4444',
-                              display: 'inline-block',
-                            }} />
-                            {customer.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                          {customer.is_walk_in_customer && (
-                            <span style={{
-                              display: 'inline-flex', alignItems: 'center',
-                              padding: '3px 9px', borderRadius: 999,
-                              fontSize: '0.68rem', fontWeight: 600,
-                              background: 'rgba(79,130,222,0.1)',
-                              color: '#2c5eb0',
-                              border: '1px solid rgba(79,130,222,0.2)',
-                            }}>
-                              Walk-in
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Actions */}
-                      <td style={{ padding: '13px 20px', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {/* 6. Actions (View, Approve, Reject) */}
+                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
                           <button
                             onClick={() => openDetailsModal(customer)}
-                            className="action-btn p-1.5 rounded-lg"
-                            style={{ background: 'rgba(79,95,82,0.1)', color: SAGE }}
-                            title="View customer details"
+                            title="View Details"
+                            className="action-btn"
+                            style={{ padding: '6px', color: SAGE, background: 'rgba(79,95,82,0.08)' }}
                           >
-                            <Eye size={14} />
+                            <Eye size={16} />
                           </button>
+
                           {customer.verification_status === 'pending' && (
                             <>
                               <button
-                                onClick={() => handleApprove(customer.id)}
-                                className="action-btn p-1.5 rounded-lg"
-                                style={{ background: 'rgba(22,163,74,0.1)', color: '#16a34a' }}
-                                title="Approve verification"
+                                onClick={() => setConfirmAction({ show: true, type: 'approve', customer })} // Trigger Confirm
+                                title="Approve Verification"
+                                className="action-btn"
+                                style={{ padding: '6px', color: '#1a7a3c', background: 'rgba(52,196,104,0.1)' }}
                               >
-                                <CheckCircle size={14} />
+                                <CheckCircle size={16} />
                               </button>
                               <button
-                                onClick={() => handleReject(customer.id)}
-                                className="action-btn p-1.5 rounded-lg"
-                                style={{ background: 'rgba(220,38,38,0.1)', color: '#dc2626' }}
-                                title="Reject verification"
+                                onClick={() => setConfirmAction({ show: true, type: 'reject', customer })} // Trigger Confirm
+                                title="Reject Verification"
+                                className="action-btn"
+                                style={{ padding: '6px', color: '#c0392b', background: 'rgba(239,68,68,0.08)' }}
                               >
-                                <XCircle size={14} />
+                                <XCircle size={16} />
                               </button>
                             </>
                           )}
@@ -498,168 +451,142 @@ export default function Customers() {
         </div>
       </div>
 
-      {/* Customer Details Modal */}
+      {/* ══ Customer Details Modal ══ */}
       {showModal && selectedCustomer && (
         <div className="modal-backdrop" onClick={closeModal}>
           <div className="modal-content anim-modal" onClick={(e) => e.stopPropagation()}>
+            
+            {/* Modal Header */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '20px 24px',
-              borderBottom: `1px solid ${CREAM}`,
+              padding: '20px 24px', borderBottom: `1px solid ${CREAM}`,
               background: `linear-gradient(135deg, rgba(79,95,82,0.04), rgba(255,243,217,0.3))`,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{
-                  width: 34, height: 34,
+                  width: 40, height: 40, borderRadius: '50%',
                   background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`,
-                  borderRadius: 10,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: '0 3px 10px rgba(79,95,82,0.25)',
+                  fontSize: '0.85rem', fontWeight: 700, color: '#fff',
+                  boxShadow: '0 2px 8px rgba(79,95,82,0.25)',
                 }}>
-                  <UsersIcon size={16} color="#fff" />
+                  {(selectedCustomer.first_name?.[0] || '')}{(selectedCustomer.last_name?.[0] || '')}
                 </div>
-                <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.05rem', letterSpacing: '-0.01em' }}>
-                  Customer Details
-                </h3>
+                <div>
+                  <h2 style={{ color: SAGE, fontWeight: 700, fontSize: '1.1rem', margin: 0 }}>
+                    {selectedCustomer.first_name} {selectedCustomer.last_name}
+                  </h2>
+                  <p style={{ color: MUTED_GRAY, fontSize: '0.8rem', margin: 0 }}>Customer Details</p>
+                </div>
               </div>
               <button
                 onClick={closeModal}
-                style={{ color: MUTED_GRAY, padding: 7, borderRadius: 10, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                style={{ color: MUTED_GRAY, padding: 6, borderRadius: 8, background: 'transparent', border: 'none', cursor: 'pointer' }}
                 onMouseEnter={e => e.currentTarget.style.background = CREAM}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
-            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {/* ID Image Section – always visible with placeholder if missing */}
-              <div style={{ textAlign: 'center' }}>
-                <p style={{ fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 8 }}>
-                  Uploaded ID Document
-                </p>
-                {selectedCustomer.image ? (
-                  <div>
-                    <img
-                      src={getFullImageUrl(selectedCustomer.image) || ''}
-                      alt="Customer ID"
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: 220,
-                        borderRadius: 12,
-                        border: `1.5px solid rgba(166,162,154,0.3)`,
-                        objectFit: 'contain',
-                        background: CREAM,
-                        margin: '0 auto',
-                      }}
-                      onError={() => setImageLoadError(true)}
-                    />
-                    {imageLoadError && (
-                      <p style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: 8 }}>
-                        ⚠️ Failed to load image. The file may be missing or the URL is incorrect.
-                      </p>
-                    )}
-                    {/* Debug info – remove after testing */}
-                    <p style={{ fontSize: '0.65rem', color: MUTED_GRAY, marginTop: 6, wordBreak: 'break-all' }}>
-                      Path: {selectedCustomer.image}
-                    </p>
-                  </div>
+            {/* Modal Body */}
+            <div style={{ padding: '24px' }}>
+              
+              {/* Image Section */}
+              <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'center' }}>
+                {selectedCustomer.image && !imageLoadError ? (
+                  <img
+                    src={getFullImageUrl(selectedCustomer.image)}
+                    alt="Verification ID"
+                    onError={() => setImageLoadError(true)}
+                    onClick={() => setLightboxOpen(true)}
+                    style={{
+                      width: '100%',
+                      maxHeight: 320,
+                      objectFit: 'contain',
+                      borderRadius: 14,
+                      border: `1.5px solid ${CREAM}`,
+                      cursor: 'zoom-in',
+                      background: '#f8f8f8',
+                      padding: '8px',
+                    }}
+                  />
                 ) : (
                   <div style={{
-                    padding: '32px 16px',
-                    background: CREAM,
-                    borderRadius: 12,
-                    border: `1.5px dashed rgba(166,162,154,0.4)`,
-                    textAlign: 'center',
+                    width: '100%', height: 140, background: CREAM, borderRadius: 14,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    border: `1.5px dashed rgba(166,162,154,0.3)`
                   }}>
-                    <CameraOff size={32} style={{ color: MUTED_GRAY, marginBottom: 8 }} />
-                    <p style={{ fontSize: '0.8rem', color: MUTED_GRAY }}>No ID image uploaded</p>
+                    <CameraOff size={24} style={{ color: MUTED_GRAY, opacity: 0.5, marginBottom: 8 }} />
+                    <p style={{ color: MUTED_GRAY, fontSize: '0.8rem' }}>No ID image uploaded</p>
                   </div>
                 )}
               </div>
 
-              {/* Customer Info Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                <InfoItem key="fullName" label="Full Name" value={`${selectedCustomer.first_name} ${selectedCustomer.last_name}`} />
-                <InfoItem key="email" label="Email" value={selectedCustomer.email} />
-                <InfoItem key="phone" label="Phone" value={selectedCustomer.phone || '—'} />
-                <InfoItem key="birthDate" label="Birth Date" value={selectedCustomer.birth_date || '—'} />
-                <InfoItem key="address" label="Address" value={selectedCustomer.address || '—'} />
-                <InfoItem key="verificationType" label="Verification Type" value={selectedCustomer.verification_type ? selectedCustomer.verification_type.replace('_', ' ') : 'Regular'} />
-                <InfoItem key="idNumber" label="ID Number" value={selectedCustomer.id_number || '—'} />
-                <InfoItem key="stamps" label="Signature Stamps" value={selectedCustomer.signature_stamps ?? 0} />
-                <InfoItem key="walkin" label="Walk-in Customer" value={selectedCustomer.is_walk_in_customer ? 'Yes' : 'No'} />
-                <InfoItem key="registeredAt" label="Registered At" value={new Date(selectedCustomer.created_at).toLocaleString()} />
-              </div>
-
-              {/* Verification Status & Action Buttons */}
-              <div className="divider-line my-2" />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-                <div>
-                  <p style={{ fontSize: '0.7rem', fontWeight: 700, color: SAGE, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 4 }}>
-                    Verification Status
-                  </p>
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    padding: '4px 12px', borderRadius: 999,
-                    fontSize: '0.75rem', fontWeight: 600,
-                    background: selectedCustomer.verification_status === 'approved'
-                      ? 'rgba(52,196,104,0.1)'
-                      : selectedCustomer.verification_status === 'rejected'
-                        ? 'rgba(239,68,68,0.08)'
-                        : 'rgba(234,179,8,0.1)',
-                    color: selectedCustomer.verification_status === 'approved'
-                      ? '#1a7a3c'
-                      : selectedCustomer.verification_status === 'rejected'
-                        ? '#c0392b'
-                        : '#92670a',
-                    border: `1px solid ${
-                      selectedCustomer.verification_status === 'approved'
-                        ? 'rgba(52,196,104,0.2)'
-                        : selectedCustomer.verification_status === 'rejected'
-                          ? 'rgba(239,68,68,0.15)'
-                          : 'rgba(234,179,8,0.2)'
-                    }`,
-                  }}>
-                    <span style={{
-                      width: 6, height: 6, borderRadius: '50%',
-                      background: selectedCustomer.verification_status === 'approved' ? '#34c468'
-                        : selectedCustomer.verification_status === 'rejected' ? '#ef4444'
-                        : '#eab308',
-                      display: 'inline-block',
-                    }} />
-                    {selectedCustomer.verification_status}
-                  </span>
+              {/* Details Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 16px' }}>
+                <InfoItem label="Email" value={selectedCustomer.email || '—'} />
+                <InfoItem label="Phone" value={selectedCustomer.phone || '—'} />
+                <InfoItem label="Birth Date" value={selectedCustomer.birth_date || '—'} />
+                <InfoItem label="Status" value={selectedCustomer.is_active ? 'Active' : 'Inactive'} />
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <InfoItem label="Address" value={selectedCustomer.address || '—'} />
                 </div>
-
-                {selectedCustomer.verification_status === 'pending' && (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={() => handleApprove(selectedCustomer.id)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-                      style={{ background: 'rgba(22,163,74,0.15)', color: '#16a34a', border: '1px solid rgba(22,163,74,0.3)', cursor: 'pointer' }}
-                    >
-                      <CheckCircle size={14} /> Approve
-                    </button>
-                    <button
-                      onClick={() => handleReject(selectedCustomer.id)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-                      style={{ background: 'rgba(220,38,38,0.12)', color: '#dc2626', border: '1px solid rgba(220,38,38,0.3)', cursor: 'pointer' }}
-                    >
-                      <XCircle size={14} /> Reject
-                    </button>
-                  </div>
+                <InfoItem label="Verification Type" value={selectedCustomer.verification_type ? selectedCustomer.verification_type.replace('_', ' ') : 'Regular'} />
+                <InfoItem label="Verification Status" value={selectedCustomer.verification_status || '—'} />
+                {selectedCustomer.id_number && (
+                  <InfoItem label="ID Number" value={selectedCustomer.id_number} />
+                )}
+                {selectedCustomer.expires_at && (
+                  <InfoItem label="Expires At" value={selectedCustomer.expires_at} />
                 )}
               </div>
 
-              <div className="divider-line mt-2" />
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              {/* Actions Footer */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 28 }}>
+                {selectedCustomer.verification_status === 'pending' && (
+                  <>
+                    <button
+                      onClick={() => setConfirmAction({ show: true, type: 'approve', customer: selectedCustomer })} // Trigger Confirm
+                      style={{
+                        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        padding: '10px', borderRadius: 12, fontSize: '0.85rem', fontWeight: 600,
+                        background: 'rgba(52,196,104,0.1)', color: '#1a7a3c', border: '1px solid rgba(52,196,104,0.2)',
+                        cursor: 'pointer', transition: 'all 0.15s'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(52,196,104,0.2)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(52,196,104,0.1)'}
+                    >
+                      <CheckCircle size={16} /> Approve
+                    </button>
+                    <button
+                      onClick={() => setConfirmAction({ show: true, type: 'reject', customer: selectedCustomer })} // Trigger Confirm
+                      style={{
+                        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        padding: '10px', borderRadius: 12, fontSize: '0.85rem', fontWeight: 600,
+                        background: 'rgba(239,68,68,0.08)', color: '#c0392b', border: '1px solid rgba(239,68,68,0.15)',
+                        cursor: 'pointer', transition: 'all 0.15s'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.15)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+                    >
+                      <XCircle size={16} /> Reject
+                    </button>
+                  </>
+                )}
+                
                 <button
-                  onClick={closeModal}
-                  className="px-5 py-2 rounded-xl text-white text-sm font-medium"
-                  style={{ background: `linear-gradient(135deg, ${SAGE}, #3e4c42)`, border: 'none', cursor: 'pointer' }}
+                  onClick={() => setOrderHistoryOpen(true)}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    padding: '10px', borderRadius: 12, fontSize: '0.85rem', fontWeight: 600,
+                    background: 'rgba(79,95,82,0.08)', color: SAGE, border: '1px solid rgba(79,95,82,0.15)',
+                    cursor: 'pointer', transition: 'all 0.15s'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(79,95,82,0.15)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(79,95,82,0.08)'}
                 >
-                  Close
+                  <History size={16} /> Order History
                 </button>
               </div>
             </div>
@@ -667,39 +594,150 @@ export default function Customers() {
         </div>
       )}
 
-      {/* ══ Toast (auto-dismissing notification) ══ */}
+      {/* ══ NEW: Confirmation Modal ══ */}
+      {confirmAction.show && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 100, // Higher z-index to sit above details modal
+          background: 'rgba(30,35,30,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 16, backdropFilter: 'blur(4px)'
+        }} onClick={() => setConfirmAction({ show: false, type: null, customer: null })}>
+          <div
+            className="anim-modal"
+            style={{
+              background: '#fff', borderRadius: 22, padding: '32px 28px',
+              maxWidth: 380, width: '100%', textAlign: 'center',
+              boxShadow: '0 24px 60px rgba(79,95,82,0.18), 0 4px 16px rgba(0,0,0,0.08)',
+              border: '1px solid rgba(242,237,228,0.8)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Icon */}
+            <div style={{
+              width: 60, height: 60,
+              background: confirmAction.type === 'approve' ? 'rgba(52,196,104,0.1)' : 'rgba(239,68,68,0.08)',
+              borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 18px', border: `1.5px solid ${confirmAction.type === 'approve' ? 'rgba(52,196,104,0.2)' : 'rgba(239,68,68,0.15)'}`,
+            }}>
+              {confirmAction.type === 'approve' ? (
+                <CheckCircle size={26} style={{ color: '#1a7a3c' }} />
+              ) : (
+                <AlertTriangle size={26} style={{ color: '#c0392b' }} />
+              )}
+            </div>
+
+            <h3 style={{ color: SAGE, fontWeight: 700, fontSize: '1.1rem', marginBottom: 8 }}>
+              {confirmAction.type === 'approve' ? 'Approve Customer?' : 'Reject Customer?'}
+            </h3>
+            <p style={{ color: MUTED_GRAY, fontSize: '0.83rem', lineHeight: 1.6, marginBottom: 24 }}>
+              Are you sure you want to {confirmAction.type}{' '}
+              <strong style={{ color: SAGE }}>
+                {confirmAction.customer?.first_name} {confirmAction.customer?.last_name}
+              </strong>
+              ?
+            </p>
+
+            <div className="divider-line mb-6" />
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button
+                onClick={() => setConfirmAction({ show: false, type: null, customer: null })}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: 12, fontSize: '0.85rem', fontWeight: 600,
+                  border: `1px solid rgba(166,162,154,0.3)`, color: MUTED_GRAY, background: 'transparent', cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = CREAM}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (confirmAction.type === 'approve') {
+                    handleApprove(confirmAction.customer.id);
+                  } else {
+                    handleReject(confirmAction.customer.id);
+                  }
+                }}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: 12, fontSize: '0.85rem', fontWeight: 600,
+                  color: '#fff', border: 'none', cursor: 'pointer',
+                  background: confirmAction.type === 'approve' ? 'linear-gradient(135deg, #34C468, #1a7a3c)' : 'linear-gradient(135deg, #EF4444, #DC2626)',
+                  boxShadow: confirmAction.type === 'approve' ? '0 4px 14px rgba(52,196,104,0.3)' : '0 4px 14px rgba(239,68,68,0.3)',
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+                onMouseLeave={e => e.currentTarget.style.transform = 'none'}
+              >
+                Yes, {confirmAction.type === 'approve' ? 'Approve' : 'Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Full Screen Image Lightbox ══ */}
+      {lightboxOpen && selectedCustomer?.image && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+          }}
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            onClick={() => setLightboxOpen(false)}
+            style={{
+              position: 'absolute', top: 24, right: 24,
+              background: 'rgba(255,255,255,0.1)', color: '#fff',
+              border: 'none', borderRadius: '50%', padding: 10, cursor: 'pointer',
+              transition: 'background 0.2s'
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+          >
+            <X size={24} />
+          </button>
+          <img
+            src={getFullImageUrl(selectedCustomer.image)}
+            alt="Verification ID Full Size"
+            style={{
+              maxWidth: '100%', maxHeight: '90vh',
+              objectFit: 'contain', borderRadius: 8,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
+      {/* Order History Modal */}
+      {orderHistoryOpen && selectedCustomer && (
+         <CustomerOrderHistoryModal 
+            isOpen={orderHistoryOpen}
+            customerId={selectedCustomer.id}
+            customerName={`${selectedCustomer.first_name} ${selectedCustomer.last_name}`}
+            onClose={() => setOrderHistoryOpen(false)}
+         />
+      )}
+
+      {/* Toast Notification */}
       {toast.show && (
         <div
           role="status"
-          aria-live="polite"
           className="toast-anim"
           style={{
-            position: 'fixed',
-            top: 24,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 9999,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '12px 20px',
-            borderRadius: 14,
+            position: 'fixed', top: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 9999,
+            display: 'inline-flex', alignItems: 'center', gap: 10, padding: '12px 20px', borderRadius: 14,
             background: toast.type === 'error' ? '#FEF2F2' : '#ECFDF5',
             color: toast.type === 'error' ? '#DC2626' : '#059669',
             border: `1px solid ${toast.type === 'error' ? '#FEE2E2' : '#D1FAE5'}`,
-            boxShadow: '0 12px 32px rgba(79,95,82,0.18)',
-            fontSize: '0.9rem',
-            fontWeight: 600,
-            letterSpacing: '0.01em',
+            boxShadow: '0 12px 32px rgba(79,95,82,0.18)', fontSize: '0.9rem', fontWeight: 600,
             pointerEvents: 'none',
-            maxWidth: '90vw',
           }}
         >
-          {toast.type === 'error' ? (
-            <AlertCircle size={18} />
-          ) : (
-            <CheckCircle2 size={18} />
-          )}
+          {toast.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
           <span>{toast.message}</span>
         </div>
       )}

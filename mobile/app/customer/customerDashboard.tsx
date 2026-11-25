@@ -44,6 +44,10 @@ import {
 import { LogBox } from 'react-native';
 LogBox.ignoreLogs(['Polling error:']);
 
+// Add this near your other imports at the top
+// Add this near your other imports at the top
+import Cake3DPreview from '@/components/Cake3DPreview';
+
 
 
 // ── Import QR Code image ──
@@ -2222,7 +2226,10 @@ export default function CustomerDashboard() {
                         return (
                           <View key={idx} style={s.orderItemRow}>
                             {isCustom ? (
-                              <CakePreview design={item.custom_design} size={50} />
+                              <Cake3DPreview 
+                                designData={item.custom_design} 
+                                size={50} 
+                              />
                             ) : (
                               <ProductImage imageUrl={menu?.image_url} size={50} />
                             )}
@@ -3952,9 +3959,12 @@ export default function CustomerDashboard() {
                   return (
                     <View key={idx} style={s.orderDetailItem}>
                       {isCustom ? (
-                        <CakePreview design={item.custom_design} size={60} />
+                        <Cake3DPreview 
+                          designData={item.custom_design} 
+                          size={50} 
+                        />
                       ) : (
-                        <ProductImage imageUrl={menu?.image_url} size={60} />
+                        <ProductImage imageUrl={menu?.image_url} size={50} />
                       )}
                       <View style={s.orderDetailItemInfo}>
                         <Text style={s.orderDetailItemName}>

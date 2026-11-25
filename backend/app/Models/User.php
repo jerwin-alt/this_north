@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     /**
      * The attributes that are mass assignable.
@@ -75,5 +76,21 @@ class User extends Authenticatable
     public function getTotalStampsAttribute()
     {
         return $this->loyaltySignatureLogs()->count();
+    }
+
+
+
+    // Add inside App\Models\User, right below loyaltyRewards()
+
+    /**
+     * Orders placed by this customer through the mobile app.
+     *
+     * IMPORTANT: This is the ONLY correct relationship for customer order
+     * history. Walk-in orders have customer_id = NULL and are therefore
+     * naturally excluded by this relationship.
+     */
+    public function orders()
+    {
+        return $this->hasMany(\App\Models\Order::class, 'customer_id');
     }
 }

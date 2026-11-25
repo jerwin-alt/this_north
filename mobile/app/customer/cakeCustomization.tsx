@@ -1,5 +1,17 @@
 // mobile/app/customer/cakeCustomization.tsx
 
+
+import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber/native';
+import * as THREE from 'three';
+
+import { Image as RNImage } from 'react-native';
+
+
+// import { captureRef } from 'react-native-view-shot';
+import { SvgUri } from 'react-native-svg';
+
+// import { PanResponder } from 'react-native'; // Ensure this is added to your react-native imports
+
 import React, { useState, useEffect, useRef, useCallback, useMemo  } from 'react';
 import {
   View,
@@ -18,7 +30,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GestureHandlerRootView, GestureDetector, Gesture } from 'react-native-gesture-handler';
@@ -41,6 +53,53 @@ import {
   type CakeShape,
 } from '@/constants/cakeBase';
 import * as ImagePicker from 'expo-image-picker';
+
+
+// Polyfill for React Three Fiber on React Native
+if (typeof window !== 'undefined') {
+  const perf = window.performance || ({} as any);
+  
+  if (!perf.clearMeasures) {
+    perf.clearMeasures = () => {};
+  }
+  if (!perf.mark) {
+    perf.mark = () => ({} as any);
+  }
+  if (!perf.measure) {
+    perf.measure = () => ({} as any);
+  }
+  
+  window.performance = perf as any;
+}
+
+
+if (typeof window !== 'undefined') {
+  const perf = window.performance || ({} as any);
+  if (!perf.clearMeasures) perf.clearMeasures = () => {};
+  if (!perf.mark) perf.mark = () => ({} as any);
+  if (!perf.measure) perf.measure = () => ({} as any);
+  window.performance = perf as any;
+}
+
+
+
+// Polyfill for DOMParser in React Native to support THREE.SVGLoader
+if (typeof global.DOMParser === 'undefined') {
+  global.DOMParser = class {
+    parseFromString(str: string) {
+      return {
+        documentElement: {
+          nodeName: 'svg',
+          getAttribute: () => null,
+          childNodes: [],
+        },
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementsByTagName: () => [],
+      };
+    }
+  } as any;
+}
 
 
 const { width } = Dimensions.get('window');
@@ -170,6 +229,7 @@ interface PlacedDecoration {
   color?: string | null;
   colors?: Record<string, string>;
   tierIndex?: number;
+  isTopPlacement?: boolean;
   element: DecorationElement;
 }
 
@@ -191,6 +251,732 @@ interface CakeFlavor {
 }
 
 export default function CakeCustomization() {
+
+
+// --- OPTIMIZED PIPING COMPONENT (Instanced for 60fps) ---
+const Piping = ({ shape, radius, yPos }: { shape: string, radius: number, yPos: number }) => {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = new THREE.Object3D();
+
+  const positions = useMemo(() => {
+    const beadRadius = 0.08;
+    const spacing = 0.12;
+    const points: [number, number, number][] = [];
+
+    if (shape === 'round') {
+      const circumference = 2 * Math.PI * radius;
+      const count = Math.floor(circumference / spacing);
+      const angleStep = (Math.PI * 2) / count;
+      for (let i = 0; i < count; i++) {
+        const angle = i * angleStep;
+        points.push([Math.cos(angle) * radius, yPos, Math.sin(angle) * radius]);
+      }
+    } else {
+      // Square logic
+      const sideLength = radius * 2;
+      const countPerSide = Math.floor(sideLength / spacing);
+      const actualSpacing = sideLength / countPerSide;
+
+      
+      // Top edge
+      for (let i = 0; i <= countPerSide; i++) points.push([-radius + i * actualSpacing, yPos, -radius]);
+      // Right edge
+      for (let i = 1; i <= countPerSide; i++) points.push([radius, yPos, -radius + i * actualSpacing]);
+      // Bottom edge
+      for (let i = 1; i <= countPerSide; i++) points.push([radius - i * actualSpacing, yPos, radius]);
+      // Left edge
+      for (let i = 1; i < countPerSide; i++) points.push([-radius, yPos, radius - i * actualSpacing]);
+    }
+    return points;
+  }, [shape, radius, yPos]);
+
+  useEffect(() => {
+    if (meshRef.current && positions.length > 0) {
+      positions.forEach((pos, i) => {
+        dummy.position.set(pos[0], pos[1], pos[2]);
+        dummy.scale.set(1, 1.2, 1); // Slightly stretch the spheres vertically
+        dummy.updateMatrix();
+        meshRef.current!.setMatrixAt(i, dummy.matrix);
+      });
+      meshRef.current.instanceMatrix.needsUpdate = true;
+    }
+  }, [positions]);
+
+  if (positions.length === 0) return null;
+
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, positions.length]} raycast={() => null}>
+      {/* Reduced geometry segments from 16x16 to 8x8 for peak mobile performance */}
+      <sphereGeometry args={[0.08, 8, 8]} />
+      <meshStandardMaterial color="#FFF8E7" roughness={0.4} />
+    </instancedMesh>
+  );
+};
+
+
+  // --- DRAG AND DROP STATE ---
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
+  const [dragImage, setDragImage] = useState<any>(null);
+  const [draggedElement, setDraggedElement] = useState<any>(null);
+
+  //REFERENCE PHOTO
+  const [isImageModalVisible, setIsImageModalVisible] = useState(false);
+
+
+  // This function handles the math when you let go of the finger
+  const executeDrop = (x: number, y: number, element: any) => {
+    // We will use the camera projection to find where (x, y) hit the cake
+    // (This is handled by the onClick event in the 3D scene)
+    setDraggedElement(element);
+    setDragPos({ x, y });
+    setIsDragging(false);
+  };
+
+  // Function to calculate 3D position and add decoration
+  const handleDropDecoration = (point: THREE.Vector3, tierIndex: number, element: any, radius: number) => {
+    if (!point) return;
+
+    const isTopFrosting = 
+      element?.element_name?.toLowerCase().includes('top') || 
+      element?.category?.toLowerCase().includes('top') ||
+      element?.element?.element_name?.toLowerCase().includes('top') ||
+      element?.element?.category?.toLowerCase().includes('top');
+
+    const tierH = 1.2; 
+    // Check if the user tapped the top of the cake
+    const isTopPlacement = Math.abs(point.y - tierH / 2) < 0.05;
+
+    let normalizedX, normalizedY;
+
+    if (isTopFrosting) {
+      normalizedX = 200; 
+      normalizedY = 200;
+    } else if (isTopPlacement) {
+      // Map the X and Z coordinates for flat top placement
+      normalizedX = ((point.x / (radius * 2)) + 0.5) * 400;
+      normalizedY = ((point.z / (radius * 2)) + 0.5) * 400;
+    } else {
+      // Map angle and height for side placement
+      const angle = Math.atan2(point.x, point.z);
+      normalizedX = (angle / (Math.PI * 2)) * 400;
+      if (normalizedX < 0) normalizedX += 400;
+      normalizedY = ((point.y / tierH) + 0.5) * 400;
+    }
+
+    const safeElement = {
+      ...element,
+      element_name: element.element_name || element.element?.element_name || 'unknown',
+      element_type: element.element_type || element.element?.element_type || 'unknown',
+      category: element.category || element.element?.category || '',
+    };
+
+    const newDec = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      elementId: element.id,
+      x: normalizedX,
+      y: normalizedY,
+      tierIndex: tierIndex,
+      isTopPlacement: isTopPlacement || isTopFrosting, // 
+      element: safeElement,
+      scale: 1.5,
+      rotation: 0,
+    };
+
+    setPlacedDecorations(prev => [...prev, newDec]);
+    setDraggedElement(null); 
+  };
+
+
+
+
+
+
+
+
+
+// --- UPDATED 3D CAKE COMPONENT ---
+const Cake3D = ({ 
+  shape, tierCount, sizeInches, tierFrostings, placedDecorations,
+  isAutoRotating, rotationX, rotationY, zoomLevel, viewMode, activeTab, activeDraggedElement, onDropDecoration, 
+  selectedDecorationId, 
+  onSelectDecoration, 
+  onRemoveDecoration
+}: any) => {
+  const groupRef = useRef<THREE.Group>(null);
+  const interactiveGroupRef = useRef<THREE.Group>(null); 
+  const { camera, scene } = useThree(); 
+
+
+  useEffect(() => {
+    (global as any).cakeCamera = camera;
+    (global as any).cakeScene = scene;
+    if (interactiveGroupRef.current) {
+      (global as any).cakeGroup = interactiveGroupRef.current;
+    }
+  }, [camera, scene, tierCount]); 
+
+
+  const baseRadius = sizeInches / 8; 
+  const tierHeight = 1.2; 
+  const tierGap = 0.1;
+  const totalHeight = (tierCount * tierHeight) + ((tierCount - 1) * tierGap);
+
+
+  
+
+  useFrame((_state, delta) => {
+    if (!groupRef.current) return;
+    
+    // 1. Handle Y-axis rotation (auto-spin) regardless of view mode
+    if (isAutoRotating) {
+      groupRef.current.rotation.y += delta * 0.5; 
+      rotationY.value = groupRef.current.rotation.y;
+    } else {
+      groupRef.current.rotation.y = rotationY.value;
+    }
+
+    // 2. Handle X-axis tilt based on view mode
+    if (viewMode === 'top') {
+      // Force flat in top view to avoid distortion
+      groupRef.current.rotation.x = 0; 
+      rotationX.value = 0;
+    } else {
+      if (isAutoRotating) {
+        groupRef.current.rotation.x = 0.70; // Your preferred angle
+        rotationX.value = 0.70;
+      } else {
+        groupRef.current.rotation.x = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, rotationX.value));
+      }
+    }
+
+    // 3. Camera positioning
+    const cakeWidth = baseRadius * 2;
+    const dynamicZoom = (zoomLevel / 6.5) * (baseRadius * 2.5); 
+
+    const targetY = viewMode === 'top' 
+      ? totalHeight + (dynamicZoom * 0.8) 
+      : (totalHeight / 2) - 0.3; 
+      
+    const targetZ = viewMode === 'top' 
+      ? 0.1 
+      : baseRadius + dynamicZoom; 
+
+    camera.position.y = THREE.MathUtils.lerp(camera.position.y, targetY, 0.1);
+    camera.position.z = THREE.MathUtils.lerp(camera.position.z, targetZ, 0.1);
+    camera.lookAt(0, totalHeight / 2, 0);
+  });
+
+  const tiers = Array.from({ length: tierCount }).map((_, index) => {
+    const tierIndex = tierCount - 1 - index; 
+    const scaleFactor = 1 - (index * 0.25); 
+    const currentRadius = baseRadius * scaleFactor;
+    const boardHeight = 0.1;
+    const yPosition = (index * (tierHeight + tierGap)) + (tierHeight / 2) + (boardHeight / 2);
+
+    // 1. Get the frosting colors from state
+    const frosting = tierFrostings[tierIndex] || {};
+    
+    // 2. Side color only falls back to default cream
+    const sideColor = frosting.side || '#F2EDE4'; 
+    
+    // 3. Top color ONLY exists if a Top Frosting was explicitly selected
+    const topColor = frosting.top;
+
+    // CREATE MATERIALS FOR THE CYLINDER
+    // Three.js cylinderGeometry accepts an array of 3 materials: [Side, Top, Bottom]
+    const sideMaterial = new THREE.MeshStandardMaterial({ color: sideColor, roughness: 0.8 });
+    // The top material is ONLY the topColor if a top frosting is selected, otherwise it stays cream
+    const topMaterial = new THREE.MeshStandardMaterial({ 
+      color: topColor || '#F2EDE4', 
+      roughness: topColor ? 0.6 : 0.8 
+    });
+    const bottomMaterial = new THREE.MeshStandardMaterial({ color: '#F2EDE4', roughness: 0.8 });
+
+    // Filter decorations for this tier
+    const tierDecorations = (placedDecorations || []).filter((d: any) => 
+      (d.tierIndex ?? 0) === tierIndex
+    );
+
+    return (
+      <group key={index} position={[0, yPosition, 0]}>
+        
+        {/* 
+          IF ROUND CAKE: Use the Cylinder with 3 materials 
+          (Side, Top, Bottom) because it works perfectly.
+        */}
+        {shape === 'round' && (
+        <mesh 
+          castShadow 
+          receiveShadow
+          userData={{ isCakeBody: true, tierIndex: tierIndex, radius: currentRadius }} 
+          onClick={(e) => {
+            if (activeTab === 'decorate' && activeDraggedElement) {
+              e.stopPropagation(); 
+              if (groupRef.current) {
+                const localPoint = groupRef.current.worldToLocal(e.point.clone());
+                localPoint.y -= yPosition;
+                onDropDecoration(localPoint, tierIndex, activeDraggedElement, currentRadius);
+              }
+            }
+          }}
+        >
+          <cylinderGeometry args={[currentRadius, currentRadius, tierHeight, 64]} />
+          <primitive object={sideMaterial} attach="material-0" />
+          <primitive object={topMaterial} attach="material-1" />
+          <primitive object={bottomMaterial} attach="material-2" />
+        </mesh>
+        )}
+
+        {/* 
+          IF SQUARE CAKE: Build it using 4 separate walls + 1 top plane.
+        */}
+        {shape === 'square' && (
+          <group>
+            {/* Front */}
+            <mesh position={[0, 0, currentRadius]} castShadow receiveShadow
+              userData={{ isCakeBody: true, tierIndex: tierIndex, radius: currentRadius }} 
+              onClick={(e) => { 
+                if (activeTab === 'decorate' && activeDraggedElement) { 
+                  e.stopPropagation(); 
+                  if (groupRef.current) {
+                    const localPoint = groupRef.current.worldToLocal(e.point.clone());
+                    localPoint.y -= yPosition;
+                    onDropDecoration(localPoint, tierIndex, activeDraggedElement, currentRadius); 
+                  }
+                } 
+              }}
+            >
+              <planeGeometry args={[currentRadius * 2, tierHeight]} />
+              <meshStandardMaterial color={sideColor} roughness={0.8} />
+            </mesh>
+            {/* Back */}
+            <mesh position={[0, 0, -currentRadius]} rotation={[0, Math.PI, 0]} castShadow receiveShadow
+              userData={{ isCakeBody: true, tierIndex: tierIndex }}
+              onClick={(e) => { 
+                if (activeTab === 'decorate' && activeDraggedElement) { 
+                  e.stopPropagation(); 
+                  if (groupRef.current) {
+                    const localPoint = groupRef.current.worldToLocal(e.point.clone());
+                    localPoint.y -= yPosition;
+                    onDropDecoration(localPoint, tierIndex, activeDraggedElement, currentRadius); 
+                  }
+                } 
+              }}
+            >
+              <planeGeometry args={[currentRadius * 2, tierHeight]} />
+              <meshStandardMaterial color={sideColor} roughness={0.8} />
+            </mesh>
+            {/* Left */}
+            <mesh position={[-currentRadius, 0, 0]} rotation={[0, -Math.PI / 2, 0]} castShadow receiveShadow
+              userData={{ isCakeBody: true, tierIndex: tierIndex }}
+              onClick={(e) => { 
+                if (activeTab === 'decorate' && activeDraggedElement) { 
+                  e.stopPropagation(); 
+                  if (groupRef.current) {
+                    const localPoint = groupRef.current.worldToLocal(e.point.clone());
+                    localPoint.y -= yPosition;
+                    onDropDecoration(localPoint, tierIndex, activeDraggedElement, currentRadius); 
+                  }
+                } 
+              }}
+            >
+              <planeGeometry args={[currentRadius * 2, tierHeight]} />
+              <meshStandardMaterial color={sideColor} roughness={0.8} />
+            </mesh>
+            {/* Right */}
+            <mesh position={[currentRadius, 0, 0]} rotation={[0, Math.PI / 2, 0]} castShadow receiveShadow
+            userData={{ isCakeBody: true, tierIndex: tierIndex }}
+              onClick={(e) => { 
+                if (activeTab === 'decorate' && activeDraggedElement) { 
+                  e.stopPropagation(); 
+                  if (groupRef.current) {
+                    const localPoint = groupRef.current.worldToLocal(e.point.clone());
+                    localPoint.y -= yPosition;
+                    onDropDecoration(localPoint, tierIndex, activeDraggedElement, currentRadius); 
+                  }
+                } 
+              }}
+            >
+              <planeGeometry args={[currentRadius * 2, tierHeight]} />
+              <meshStandardMaterial color={sideColor} roughness={0.8} />
+            </mesh>
+
+            {/* 2. Top Plane */}
+            <mesh 
+              position={[0, tierHeight / 2, 0]} 
+              rotation={[-Math.PI / 2, 0, 0]} 
+              receiveShadow
+              userData={{ isCakeBody: true, tierIndex: tierIndex }} 
+              onClick={(e) => { 
+                if (activeTab === 'decorate' && activeDraggedElement) { 
+                  e.stopPropagation(); 
+                  if (groupRef.current) {
+                    const localPoint = groupRef.current.worldToLocal(e.point.clone());
+                    localPoint.y -= yPosition;
+                    onDropDecoration(localPoint, tierIndex, activeDraggedElement, currentRadius); 
+                  }
+                } 
+              }}
+            >
+              <planeGeometry args={[currentRadius * 2, currentRadius * 2]} />
+              <meshStandardMaterial color={topColor || '#F2EDE4'} roughness={topColor ? 0.6 : 0.8} />
+            </mesh>
+
+            {/* 3. Bottom Plane (Always cream to hide the hole) */}
+            <mesh 
+              position={[0, -tierHeight / 2, 0]} 
+              rotation={[Math.PI / 2, 0, 0]} 
+              receiveShadow
+            >
+              <planeGeometry args={[currentRadius * 2, currentRadius * 2]} />
+              <meshStandardMaterial color="#F2EDE4" roughness={0.8} />
+            </mesh>
+          </group>
+        )}
+
+        {/* Piping Beads (Top & Bottom of Tier) */}
+        <Piping shape={shape} radius={currentRadius} yPos={tierHeight / 2} />
+        <Piping shape={shape} radius={currentRadius} yPos={-tierHeight / 2} />
+
+        {/* Individual 3D Decorations */}
+        {tierDecorations.map((dec: any) => {
+          let posX, posZ, localY;
+          const scale = dec.scale ?? 1;
+          const offset = 0.12 * scale; 
+
+          if (dec.isTopPlacement) {
+            posX = (dec.x / 400 - 0.5) * currentRadius * 2;
+            posZ = (dec.y / 400 - 0.5) * currentRadius * 2;
+            localY = tierHeight / 2 + 0.05;
+          } else {
+            const angle = (dec.x / 400) * Math.PI * 2;
+            localY = ((dec.y / 400) - 0.5) * tierHeight;
+            posX = Math.sin(angle) * (currentRadius + offset);
+            posZ = Math.cos(angle) * (currentRadius + offset);
+          }
+
+          const isSelected = selectedDecorationId === dec.id;
+
+          return (
+            <group key={dec.id}>
+              <Decoration3D
+                position={[posX, localY, posZ]}
+                rotation={[
+                  0, 
+                  // Base angle + manual rotation (converted from degrees to radians)
+                  (dec.isTopPlacement ? 0 : (dec.x / 400) * Math.PI * 2) + (dec.rotation || 0) * Math.PI / 180, 
+                  0
+                ]}
+                dec={dec}
+                onSelect={onSelectDecoration}
+                selectedDecorationId={selectedDecorationId}
+              />
+
+              {isSelected && (
+                <ControlPanel
+                  dec={dec}
+                  scale={scale}
+                  posX={posX}
+                  localY={localY}
+                  posZ={posZ}
+                  rotationY={rotationY}
+                  onRemoveDecoration={onRemoveDecoration}
+                  onSelectDecoration={onSelectDecoration}
+                  onResizeDecoration={resizeDecoration} 
+                />
+              )}
+            </group>
+          );
+        })}
+      </group>
+    );
+  });
+
+  return (
+    <group ref={groupRef}>
+      {/* Two-Tiered Golden Cake Drum Board */}
+      {/* Two-Tiered Golden Cake Drum Board (Reference Style) */}
+      <group position={[0, -0.1, 0]}>
+        {/* Bottom layer of board (Darker edge) */}
+        <mesh receiveShadow castShadow>
+          {shape === 'round' ? (
+            <cylinderGeometry args={[baseRadius + 0.2, baseRadius + 0.2, 0.06, 64]} />
+          ) : (
+            <boxGeometry args={[baseRadius * 2 + 0.4, 0.06, baseRadius * 2 + 0.4]} />
+          )}
+          <meshStandardMaterial color="#DBC1A1" roughness={0.5} />
+        </mesh>
+        
+        {/* Top layer of board (Lighter surface) */}
+        <mesh position={[0, 0.04, 0]} receiveShadow>
+          {shape === 'round' ? (
+            <cylinderGeometry args={[baseRadius + 0.25, baseRadius + 0.25, 0.02, 64]} />
+          ) : (
+            <boxGeometry args={[baseRadius * 2 + 0.5, 0.02, baseRadius * 2 + 0.5]} />
+          )}
+          <meshStandardMaterial color="#E8D5B5" roughness={0.6} />
+        </mesh>
+      </group>
+
+      {/* 👇 THIS IS THE NEW PART YOU NEED TO ADD 👇 */}
+      <group ref={interactiveGroupRef}>
+        {tiers}
+      </group>
+      {/* 👆 THIS IS THE NEW PART YOU NEED TO ADD 👆 */}
+      
+    </group>
+  );
+};
+
+
+
+// --- COMPREHENSIVE 3D DECORATION COMPONENT ---
+const Decoration3D = ({ 
+  position, 
+  rotation, 
+  dec,
+  onSelect,
+  selectedDecorationId,
+}: any) => {
+  const name = (
+    dec?.element?.element_name || 
+    dec?.element_name || 
+    dec?.element?.element_type || 
+    ''
+  ).toLowerCase().trim();
+  
+  const scale = dec.scale ?? 1;
+  
+  // 👇 Calculate if this decoration should be faded
+  const isDimmed = selectedDecorationId !== null && selectedDecorationId !== dec.id;
+  const opacity = isDimmed ? 0.5 : 1;
+  const transparent = isDimmed;
+
+  const handleClick = (e: any) => {
+    e.stopPropagation();
+    if (onSelect) onSelect(dec.id);
+  };
+
+  // 1. FROSTINGS
+  if (name.includes('frosting')) {
+    return null; 
+  }
+
+  // 2. FRUITS
+  if (name.includes('strawberry')) {
+    const strawberryPoints = [];
+    for (let i = 0; i <= 20; i++) {
+      const t = i / 20;
+      const y = -0.25 + (t * 0.45); 
+      let radius = 0;
+      if (t < 0.7) {
+        radius = Math.sin((t / 0.7) * (Math.PI / 2)) * 0.14;
+      } else {
+        radius = Math.cos(((t - 0.7) / 0.3) * (Math.PI / 2)) * 0.14;
+      }
+      if (t === 0 || t === 1) radius = 0;
+      strawberryPoints.push(new THREE.Vector2(radius, y));
+    }
+
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh castShadow onClick={handleClick}>
+          <latheGeometry args={[strawberryPoints, 32]} />
+          <meshStandardMaterial color="#D90429" roughness={0.4} side={THREE.DoubleSide} transparent={transparent} opacity={opacity} />
+        </mesh>
+        {Array.from({ length: 15 }).map((_, i) => {
+          const angle = (i / 15) * Math.PI * 2;
+          const yPos = -0.15 + (i % 4) * 0.08;
+          const radiusAtHeight = Math.sin(((yPos + 0.25) / 0.45) * Math.PI) * 0.14;
+          return (
+            <mesh key={i} position={[Math.cos(angle) * (radiusAtHeight + 0.01), yPos, Math.sin(angle) * (radiusAtHeight + 0.01)]} onClick={handleClick}>
+              <sphereGeometry args={[0.012, 8, 8]} />
+              <meshStandardMaterial color="#FFD700" roughness={0.5} transparent={transparent} opacity={opacity} />
+            </mesh>
+          );
+        })}
+        {Array.from({ length: 6 }).map((_, i) => {
+          const angle = (i / 6) * Math.PI * 2;
+          return (
+            <mesh key={`leaf-${i}`} position={[Math.cos(angle) * 0.05, 0.2, Math.sin(angle) * 0.05]} rotation={[0.4, angle, 0]} castShadow onClick={handleClick}>
+              <coneGeometry args={[0.04, 0.1, 4]} />
+              <meshStandardMaterial color="#2A9D8F" roughness={0.6} transparent={transparent} opacity={opacity} />
+            </mesh>
+          );
+        })}
+      </group>
+    );
+  }
+
+  if (name.includes('cherry')) {
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh castShadow scale={[1, 0.9, 1]} onClick={handleClick}>
+          <sphereGeometry args={[0.12, 16, 16]} />
+          <meshStandardMaterial color="#9B111E" roughness={0.15} transparent={transparent} opacity={opacity} />
+        </mesh>
+        <mesh position={[0.04, 0.04, 0.04]} onClick={handleClick}>
+          <sphereGeometry args={[0.04, 8, 8]} />
+          <meshStandardMaterial color="#FFCCCC" transparent={transparent} opacity={opacity} />
+        </mesh>
+        <mesh position={[0.05, 0.15, 0]} rotation={[0, 0, -0.3]} onClick={handleClick}>
+          <cylinderGeometry args={[0.008, 0.008, 0.18, 8]} />
+          <meshStandardMaterial color="#6B8E23" roughness={0.8} transparent={transparent} opacity={opacity} />
+        </mesh>
+        <mesh position={[0.1, 0.22, 0]} rotation={[0, 0, 0.5]} onClick={handleClick}>
+          <sphereGeometry args={[0.02, 8, 8]} scale={[1, 0.2, 0.5]} />
+          <meshStandardMaterial color="#6B8E23" roughness={0.8} transparent={transparent} opacity={opacity} />
+        </mesh>
+      </group>
+    );
+  }
+
+  if (name.includes('blueberry')) {
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh castShadow onClick={handleClick}>
+          <sphereGeometry args={[0.1, 16, 16]} />
+          <meshStandardMaterial color="#2E4053" roughness={0.5} transparent={transparent} opacity={opacity} />
+        </mesh>
+        {Array.from({ length: 5 }).map((_, i) => {
+          const angle = (i / 5) * Math.PI * 2;
+          return (
+            <mesh key={`crown-${i}`} position={[Math.cos(angle) * 0.04, 0.08, Math.sin(angle) * 0.04]} onClick={handleClick}>
+              <sphereGeometry args={[0.025, 6, 6]} />
+              <meshStandardMaterial color="#1B263B" roughness={0.7} transparent={transparent} opacity={opacity} />
+            </mesh>
+          );
+        })}
+      </group>
+    );
+  }
+
+  // 3. FLOWERS
+  if (name.includes('flower')) {
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh castShadow onClick={handleClick}>
+          <sphereGeometry args={[0.05, 16, 16]} />
+          <meshStandardMaterial color="#FFD700" roughness={0.4} transparent={transparent} opacity={opacity} />
+        </mesh>
+        {Array.from({ length: 5 }).map((_, i) => {
+          const angle = (i / 5) * Math.PI * 2;
+          return (
+            <mesh key={i} position={[Math.cos(angle) * 0.08, 0, Math.sin(angle) * 0.08]} rotation={[Math.PI / 2, 0, angle]} castShadow onClick={handleClick}>
+              <sphereGeometry args={[0.06, 16, 16]} />
+              <meshStandardMaterial color="#F5E1E8" roughness={0.6} transparent={transparent} opacity={opacity} />
+            </mesh>
+          );
+        })}
+      </group>
+    );
+  }
+
+  // 4. SPRINKLES
+  if (name.includes('sprinkle')) {
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh castShadow onClick={handleClick}>
+          <boxGeometry args={[0.02, 0.08, 0.02]} />
+          <meshStandardMaterial color="#FF4500" roughness={0.5} transparent={transparent} opacity={opacity} />
+        </mesh>
+      </group>
+    );
+  }
+
+  // 5. CANDLES
+  if (name.includes('candle')) {
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh castShadow onClick={handleClick}>
+          <cylinderGeometry args={[0.03, 0.03, 0.25, 16]} />
+          <meshStandardMaterial color="#4169E1" roughness={0.4} transparent={transparent} opacity={opacity} />
+        </mesh>
+        <mesh position={[0, 0.16, 0]} onClick={handleClick}>
+          <coneGeometry args={[0.02, 0.06, 16]} />
+          <meshStandardMaterial color="#FFD700" emissive="#FFA500" emissiveIntensity={0.5} transparent={transparent} opacity={opacity} />
+        </mesh>
+      </group>
+    );
+  }
+
+  // 6. CHOCOLATE
+  if (name.includes('chocolate')) {
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh castShadow onClick={handleClick}>
+          <boxGeometry args={[0.12, 0.08, 0.12]} />
+          <meshStandardMaterial color="#4E342E" roughness={0.3} transparent={transparent} opacity={opacity} />
+        </mesh>
+      </group>
+    );
+  }
+
+  // 7. MACARONS
+  if (name.includes('macaron')) {
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh position={[0, 0.03, 0]} castShadow onClick={handleClick}>
+          <sphereGeometry args={[0.1, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          <meshStandardMaterial color="#F4A6B8" roughness={0.6} transparent={transparent} opacity={opacity} />
+        </mesh>
+        <mesh position={[0, -0.03, 0]} rotation={[Math.PI, 0, 0]} castShadow onClick={handleClick}>
+          <sphereGeometry args={[0.1, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          <meshStandardMaterial color="#F4A6B8" roughness={0.6} transparent={transparent} opacity={opacity} />
+        </mesh>
+        <mesh castShadow onClick={handleClick}>
+          <cylinderGeometry args={[0.08, 0.08, 0.02, 16]} />
+          <meshStandardMaterial color="#FFF8E7" roughness={0.4} transparent={transparent} opacity={opacity} />
+        </mesh>
+      </group>
+    );
+  }
+
+  // 8. MODELING
+  if (name.includes('fondant')) {
+    if (name.includes('leaf')) {
+      return (
+        <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+          <mesh castShadow onClick={handleClick}>
+            <sphereGeometry args={[0.08, 16, 16]} />
+            <meshStandardMaterial color="#8CBF7A" roughness={0.5} transparent={transparent} opacity={opacity} />
+          </mesh>
+        </group>
+      );
+    }
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh castShadow onClick={handleClick}>
+          <sphereGeometry args={[0.06, 16, 16]} />
+          <meshStandardMaterial color="#F5E1E8" roughness={0.5} transparent={transparent} opacity={opacity} />
+        </mesh>
+      </group>
+    );
+  }
+
+  if (name.includes('pearl') || name.includes('sugar')) {
+    return (
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+        <mesh castShadow onClick={handleClick}>
+          <sphereGeometry args={[0.05, 16, 16]} />
+          <meshStandardMaterial color="#FFFFFF" metalness={0.1} roughness={0.1} transparent={transparent} opacity={opacity} />
+        </mesh>
+      </group>
+    );
+  }
+
+  // 9. DEFAULT FALLBACK
+  return (
+    <group position={position} rotation={rotation} scale={[scale, scale, scale]} userData={{ decId: dec.id }}>
+      <mesh castShadow onClick={handleClick}>
+        <sphereGeometry args={[0.08, 16, 16]} />
+        <meshStandardMaterial color="#D4A03D" roughness={0.5} transparent={transparent} opacity={opacity} />
+      </mesh>
+    </group>
+  );
+};
+
   const router = useRouter();
   const { user } = useAuth();
   const { setRefreshOrders } = useAppStore();
@@ -235,6 +1021,8 @@ export default function CakeCustomization() {
   const [orderNotes, setOrderNotes] = useState('');
   const [placingOrder, setPlacingOrder] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  //show decorations
+  const [showDecorationDetails, setShowDecorationDetails] = useState(false);
 
   const [selectedDecorationId, setSelectedDecorationId] = useState<string | null>(null);
 
@@ -250,7 +1038,7 @@ export default function CakeCustomization() {
   } | null>(null);
 
   // ---- Ghost state ----
-// const [ghostXml, setGhostXml] = useState<string | null>(null);
+ // const [ghostXml, setGhostXml] = useState<string | null>(null);
 
   const [isGhostVisible, setIsGhostVisible] = useState(false);
 
@@ -273,11 +1061,173 @@ export default function CakeCustomization() {
   const summaryCanvasRef = useRef<View>(null);
   const [summaryScale, setSummaryScale] = useState(1);
 
+
+  // --- PHASE 5: Camera & Rotation State ---
+  const [isAutoRotating, setIsAutoRotating] = useState(true);
+  const [zoomLevel, setZoomLevel] = useState(10);
+  const [viewMode, setViewMode] = useState<'side' | 'top'>('side');
+  
+  // Shared values for smooth 60fps rotation
+  const rotationX = useSharedValue(0.70);
+  const rotationY = useSharedValue(0);
+  const startRotationX = useSharedValue(0);
+  const startRotationY = useSharedValue(0);
+  const pinchStartZoom = useSharedValue(12);
+
+
+    // 👇 ADD THE TWO LINES RIGHT HERE 👇
+  // Static rotations for the Order Summary / Pickup Modals
+  const summaryRotationX = useSharedValue(0.75); 
+  const summaryRotationY = useSharedValue(Math.PI / 4); 
+
+
+  const handleScreenTap = (x: number, y: number) => {
+    if (!(global as any).cakeCamera || !(global as any).cakeGroup) return;
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    
+    mouse.x = (x / CANVAS_SIZE) * 2 - 1;
+    mouse.y = -(y / CANVAS_SIZE) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, (global as any).cakeCamera);
+    
+    const intersects = raycaster.intersectObject((global as any).cakeGroup, true);
+
+    if (intersects.length > 0) {
+      const firstHit = intersects[0];
+      let obj: any = firstHit.object;
+
+      // 1. Check if it's a specific decoration or remove button
+      while (obj) {
+        if (obj.userData && obj.userData.decId) {
+          if (obj.userData.isRemoveBtn) {
+            removeDecoration(obj.userData.decId);
+            setSelectedDecorationId(null);
+          } else if (obj.userData.isRotateBtn) {
+            rotateDecoration(obj.userData.decId, obj.userData.delta);
+          } else if (obj.userData.isResizeBtn) {
+            resizeDecoration(obj.userData.decId, obj.userData.delta);
+          } else {
+            setSelectedDecorationId(obj.userData.decId);
+          }
+          return; 
+        }
+        obj = obj.parent;
+      }
+
+      // 2. Check if it's the cake body
+      let cakeObj: any = firstHit.object;
+      while (cakeObj) {
+        if (cakeObj.userData && cakeObj.userData.isCakeBody) {
+          const tierIdx = cakeObj.userData.tierIndex;
+          const currentRadius = cakeObj.userData.radius;
+          const tierH = 1.2;
+          
+          let tierGroup = cakeObj.parent;
+          while (tierGroup && (tierGroup.position.y === undefined || tierGroup.position.y === 0)) {
+            tierGroup = tierGroup.parent;
+          }
+          const tierY = tierGroup ? tierGroup.position.y : 0;
+          
+          // 👇 THE CRITICAL FIX: Convert the tap point to the cake's local space
+          const cakeLocalPoint = (global as any).cakeGroup.worldToLocal(firstHit.point.clone());
+          const localY = cakeLocalPoint.y - tierY;
+          
+          const isTopClick = Math.abs(localY - (tierH / 2)) < 0.15;
+
+          // 3. Move the selected decoration if one is active
+          if (selectedDecorationId) {
+            let normalizedX, normalizedY;
+            
+            if (isTopClick) {
+              // Use the local X and Z for accurate flat top placement
+              normalizedX = ((cakeLocalPoint.x / (currentRadius * 2)) + 0.5) * 400;
+              normalizedY = ((cakeLocalPoint.z / (currentRadius * 2)) + 0.5) * 400;
+            } else {
+              // Use the local X and Z for accurate side placement
+              const angle = Math.atan2(cakeLocalPoint.x, cakeLocalPoint.z);
+              normalizedX = (angle / (Math.PI * 2)) * 400;
+              if (normalizedX < 0) normalizedX += 400;
+              normalizedY = ((localY / tierH) + 0.5) * 400;
+            }
+
+            setPlacedDecorations(prev => prev.map(d => 
+              d.id === selectedDecorationId 
+                ? { ...d, x: normalizedX, y: normalizedY, tierIndex: tierIdx, isTopPlacement: isTopClick }
+                : d
+            ));
+            return; 
+          }
+
+          // 4. Frosting selection logic
+          const targetFrosting = placedDecorations.find(d => {
+            if (d.tierIndex !== tierIdx) return false;
+            if (d.element.element_type !== 'icing') return false;
+            const cat = (d.element.category || '').toLowerCase();
+            if (isTopClick && cat.includes('top')) return true;
+            if (!isTopClick && cat.includes('side')) return true;
+            return false;
+          });
+
+          if (targetFrosting) {
+            setSelectedDecorationId(targetFrosting.id);
+          } else {
+            setSelectedDecorationId(null);
+          }
+          return;
+        }
+        cakeObj = cakeObj.parent;
+      }
+    }
+    
+    setSelectedDecorationId(null);
+  };
+
+
+  // 1. Pan Gesture
+  const panGesture = Gesture.Pan()
+    .onStart(() => {
+      runOnJS(setIsAutoRotating)(false);
+      startRotationX.value = rotationX.value;
+      startRotationY.value = rotationY.value;
+    })
+    .onUpdate((event) => {
+      rotationX.value = startRotationX.value + (event.translationY * 0.01);
+      rotationY.value = startRotationY.value + (event.translationX * 0.01);
+    });
+
+  // 2. Pinch Gesture
+  const pinchGesture = Gesture.Pinch()
+    .onStart(() => {
+      runOnJS(setIsAutoRotating)(false);
+      pinchStartZoom.value = zoomLevel; 
+    })
+    .onUpdate((event) => {
+      const newZoom = Math.max(4, Math.min(20, pinchStartZoom.value / event.scale));
+      runOnJS(setZoomLevel)(newZoom);
+    });
+
+  // 3. Tap Gesture (Selection)
+  const tapGesture = Gesture.Tap()
+    .onEnd((event) => {
+      runOnJS(handleScreenTap)(event.x, event.y);
+    });
+
+  // 4. Combine them all
+  const composedGesture = Gesture.Simultaneous(panGesture, pinchGesture, tapGesture);
+
+
+
+
+  // Add this near your other useState variables
+  const [activeTab, setActiveTab] = useState<'decorate' | 'cake' | 'flavor' | 'details'>('decorate');
+
   // ---- Safe state update helpers ----
   const safeSetPlacedDecorations = useCallback((updateFn: (prev: PlacedDecoration[]) => PlacedDecoration[]) => {
     if (isMounted.current) setPlacedDecorations(updateFn);
   }, []);
-
+ 
   // const safeSetGhostImage = useCallback((img: any) => {
   //   if (isMounted.current) setGhostImage(img);
   // }, []);
@@ -326,6 +1276,148 @@ export default function CakeCustomization() {
       if (aP !== bP) return aP - bP;
       return 0; // stable — preserve insertion order within the same priority
     });
+  };
+
+// --- 3D ROTATE ICON COMPONENT ---
+  const RotateIcon = ({ direction, color }: { direction: 'left' | 'right', color: string }) => {
+    const isLeft = direction === 'left';
+    
+    return (
+      // Mirror the entire icon horizontally for the Left button
+      <group scale={[isLeft ? -1 : 1, 1, 1]}>
+        
+        {/* The curved arc (Gap is now at the top) */}
+        <mesh rotation={[0, 0, Math.PI / 4]} renderOrder={1000} raycast={() => null}>
+          <torusGeometry args={[0.03, 0.008, 8, 24, Math.PI * 1.5]} />
+          <meshBasicMaterial color={color} depthTest={false} />
+        </mesh>
+
+        {/* The triangular arrowhead (Positioned at the top-right of the arc) */}
+        <mesh 
+          position={[0.028, 0.028, 0]} 
+          rotation={[0, 0, -Math.PI / 4]} 
+          renderOrder={1000} 
+          raycast={() => null}
+        >
+          <circleGeometry args={[0.025, 3]} />
+          <meshBasicMaterial color={color} depthTest={false} />
+        </mesh>
+
+      </group>
+    );
+  };
+
+
+// --- CONTROL PANEL COMPONENT (Always faces camera) ---
+ const ControlPanel = ({ 
+    dec, scale, posX, localY, posZ, rotationY, 
+    onRemoveDecoration, onSelectDecoration, onResizeDecoration
+  }: any) => {
+    const panelRef = useRef<THREE.Group>(null);
+
+    useFrame(() => {
+      if (panelRef.current) {
+        panelRef.current.rotation.y = -rotationY.value;
+      }
+    });
+
+    return (
+      <group ref={panelRef} position={[posX, localY + 0.35 * scale, posZ]}>
+        {/* 1. Dark Drop Shadow */}
+        <mesh position={[0, -0.015, -0.01]} renderOrder={997} raycast={() => null}>
+          <planeGeometry args={[0.75, 0.45]} />
+          <meshBasicMaterial color="#000000" transparent opacity={0.15} depthTest={false} />
+        </mesh>
+
+        {/* 2. Solid White Panel Background */}
+        <mesh renderOrder={998} raycast={() => null}>
+          <planeGeometry args={[0.7, 0.4]} />
+          <meshBasicMaterial color="#ffffff" transparent={false} depthTest={false} />
+        </mesh>
+
+        {/* ROW 1: Rotate & Remove */}
+        <group position={[0, 0.1, 0]}>
+          {/* Left Rotate Button */}
+          <mesh 
+            position={[-0.22, 0, 0.01]} 
+            userData={{ decId: dec.id, isRotateBtn: true, delta: -45 }}
+            renderOrder={999}
+          >
+            <circleGeometry args={[0.08, 32]} />
+            <meshBasicMaterial color="#DBEAFE" depthTest={false} />
+          </mesh>
+          <group position={[-0.22, 0, 0.02]}>
+            <RotateIcon direction="left" color="#2563EB" />
+          </group>
+
+          {/* Remove Button */}
+          <mesh 
+            userData={{ decId: dec.id, isRemoveBtn: true }}
+            renderOrder={999}
+          >
+            <circleGeometry args={[0.08, 32]} />
+            <meshBasicMaterial color="#FEE2E2" depthTest={false} />
+          </mesh>
+          <mesh position={[0, 0, 0.02]} rotation={[0, 0, Math.PI / 4]} renderOrder={1000} raycast={() => null}>
+            <planeGeometry args={[0.02, 0.08]} />
+            <meshBasicMaterial color="#DC2626" depthTest={false} />
+          </mesh>
+          <mesh position={[0, 0, 0.02]} rotation={[0, 0, -Math.PI / 4]} renderOrder={1000} raycast={() => null}>
+            <planeGeometry args={[0.02, 0.08]} />
+            <meshBasicMaterial color="#DC2626" depthTest={false} />
+          </mesh>
+
+          {/* Right Rotate Button */}
+          <mesh 
+            position={[0.22, 0, 0.01]} 
+            userData={{ decId: dec.id, isRotateBtn: true, delta: 45 }}
+            renderOrder={999}
+          >
+            <circleGeometry args={[0.08, 32]} />
+            <meshBasicMaterial color="#DBEAFE" depthTest={false} />
+          </mesh>
+          <group position={[0.22, 0, 0.02]}>
+            <RotateIcon direction="right" color="#2563EB" />
+          </group>
+        </group>
+
+        {/* ROW 2: Resize */}
+        <group position={[0, -0.1, 0]}>
+          {/* Scale Down (-) */}
+          <mesh 
+            position={[-0.1, 0, 0.01]} 
+            userData={{ decId: dec.id, isResizeBtn: true, delta: -0.2 }}
+            renderOrder={999}
+          >
+            <circleGeometry args={[0.08, 32]} />
+            <meshBasicMaterial color="#E0E7FF" depthTest={false} />
+          </mesh>
+          <mesh position={[-0.1, 0, 0.02]} renderOrder={1000} raycast={() => null}>
+            <planeGeometry args={[0.06, 0.015]} />
+            <meshBasicMaterial color="#4F46E5" depthTest={false} />
+          </mesh>
+
+          {/* Scale Up (+) */}
+          <mesh 
+            position={[0.1, 0, 0.01]} 
+            userData={{ decId: dec.id, isResizeBtn: true, delta: 0.2 }}
+            renderOrder={999}
+          >
+            <circleGeometry args={[0.08, 32]} />
+            <meshBasicMaterial color="#E0E7FF" depthTest={false} />
+          </mesh>
+          <mesh position={[0.1, 0, 0.02]} renderOrder={1000} raycast={() => null}>
+            <planeGeometry args={[0.06, 0.015]} />
+            <meshBasicMaterial color="#4F46E5" depthTest={false} />
+          </mesh>
+          <mesh position={[0.1, 0, 0.02]} renderOrder={1000} raycast={() => null}>
+            <planeGeometry args={[0.015, 0.06]} />
+            <meshBasicMaterial color="#4F46E5" depthTest={false} />
+          </mesh>
+        </group>
+
+      </group>
+    );
   };
   
 
@@ -416,6 +1508,21 @@ export default function CakeCustomization() {
       prev.map((d) =>
         d.id === id
           ? { ...d, rotation: (((Number(d.rotation) || 0) + delta) % 360 + 360) % 360 }
+          : d
+      )
+    );
+  }, [safeSetPlacedDecorations]);
+
+
+    const resizeDecoration = useCallback((id: string, delta: number) => {
+    safeSetPlacedDecorations((prev) =>
+      prev.map((d) =>
+        d.id === id
+          ? { 
+              ...d, 
+              // Clamp the size between 0.5x and 3.0x so it doesn't disappear or get huge
+              scale: Math.max(0.5, Math.min(3.0, (Number(d.scale) || 1) + delta)) 
+            }
           : d
       )
     );
@@ -582,27 +1689,27 @@ export default function CakeCustomization() {
 
 
   const pickReferenceImage = async () => {
-  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (status !== 'granted') {
-    Alert.alert('Permission needed', 'Please allow access to your photos to upload a reference image.');
-    return;
-  }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],   // ← new API (was MediaTypeOptions.Images)
-      allowsEditing: true,
-      quality: 0.8,
-    });
-  if (!result.canceled) {
-    const asset = result.assets[0];
-    setReferenceImage({
-      uri: asset.uri,
-      type: 'image/jpeg',
-      name: `reference_${Date.now()}.jpg`,
-    });
-  }
-};
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow access to your photos to upload a reference image.');
+      return;
+    }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],   // ← new API (was MediaTypeOptions.Images)
+        allowsEditing: true,
+        quality: 0.8,
+      });
+    if (!result.canceled) {
+      const asset = result.assets[0];
+      setReferenceImage({
+        uri: asset.uri,
+        type: 'image/jpeg',
+        name: `reference_${Date.now()}.jpg`,
+      });
+    }
+  };
 
-const removeReferenceImage = () => setReferenceImage(null);
+  const removeReferenceImage = () => setReferenceImage(null);
 
 
   // ---- Total price calculation ----
@@ -788,131 +1895,49 @@ const removeReferenceImage = () => setReferenceImage(null);
 
 
   
-  // ---- Render canvas ----
+  // ---- Render 3D Canvas ----
   const renderCanvas = () => {
-    const decorations = Array.isArray(placedDecorations) ? placedDecorations : [];
+    const currentSizeObj = cakeSizes.find(s => s.id === selectedSize);
+    const sizeInches = currentSizeObj?.size_inches || 8;
+
     return (
-      <View ref={canvasRef} style={styles.canvasContainer}>
-        <View style={styles.canvas}>
-          <SvgXml xml={baseCakeXml} width="100%" height="100%" />
+      <View style={styles.canvasContainer}>
+        <View style={[styles.canvas, { borderWidth: 0, position: 'relative' }]}>
+          
+          {/* 1. The 3D Scene */}
+          <Canvas>
+            <ambientLight intensity={0.6} />
+            <directionalLight position={[5, 10, 5]} intensity={1.5} castShadow />
+            <directionalLight position={[-5, 5, -5]} intensity={0.5} />
+            
+            <Cake3D
+              shape={selectedShape}
+              tierCount={tierCount}
+              sizeInches={sizeInches}
+              tierFrostings={tierFrostings}
+              placedDecorations={placedDecorations}
+              isAutoRotating={isAutoRotating}
+              rotationX={rotationX} 
+              rotationY={rotationY}
+              zoomLevel={zoomLevel}
+              viewMode={viewMode}
+              activeTab={activeTab}
+              activeDraggedElement={draggedElement}
+              onDropDecoration={handleDropDecoration}
+              selectedDecorationId={selectedDecorationId}    
+              onSelectDecoration={setSelectedDecorationId}  
+              onRemoveDecoration={removeDecoration} 
+              onRotateDecoration={rotateDecoration}         
+            />
+          </Canvas>
 
-          {/* ── Icing X buttons — positioned per tier ── */}
-          {decorations.filter((d) => isIcing(d.element)).map((dec) => {
-            const geo = getTierGeometries(selectedShape, tierCount)[dec.tierIndex ?? 0];
-            if (!geo) return null;
-            const isTop = getIcingPosition(dec.element.element_name) === 'top';
-            const xBtn = isTop
-              ? geo.cx + geo.rx * 0.72
-              : geo.cx + geo.rx * 0.82;
-            const yBtn = isTop
-              ? geo.cyTop - geo.ry * 0.78
-              : geo.cyTop + geo.wallH * 0.55;
-            return (
-              <TouchableOpacity
-                key={`icing-x-${dec.id}`}
-                style={{
-                  position: 'absolute',
-                  left: xBtn - 12,
-                  top: yBtn - 12,
-                  backgroundColor: '#fff',
-                  borderRadius: 12,
-                  padding: 2,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.15,
-                  shadowRadius: 4,
-                  elevation: 3,
-                  zIndex: 10,
-                }}
-                onPress={() => removeDecoration(dec.id)}
-              >
-                <Ionicons name="close-circle" size={18} color="#EF4444" />
-              </TouchableOpacity>
-            );
-          })}
+          {/* 2. Invisible Overlay for Gestures */}
+          {!draggedElement && (
+            <GestureDetector gesture={composedGesture}>
+              <View style={StyleSheet.absoluteFill} /> 
+            </GestureDetector>
+          )}
 
-          {/* ── Regular decorations ── */}
-          {decorations.filter((d) => !isIcing(d.element)).map((dec) => {
-            const gesture = createMoveGesture(dec);
-            const decSize = 40 * (dec.scale ?? 1);
-            const displayX = (dec.x / 400) * CANVAS_SIZE;
-            const displayY = (dec.y / 400) * CANVAS_SIZE;
-            const rotation = Number(dec.rotation) || 0;
-            const isSelected = selectedDecorationId === dec.id;
-
-            return (
-              <GestureDetector key={dec.id} gesture={gesture}>
-                <Animated.View
-                  style={[
-                    styles.placedDecoration,
-                    {
-                      left: displayX - decSize / 2,
-                      top: displayY - decSize / 2,
-                      width: decSize,
-                      height: decSize,
-                    },
-                  ]}
-                >
-                  {/* ── Rotated decoration ── */}
-                  <View
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      transform: [{ rotate: `${rotation}deg` }],
-                    }}
-                    pointerEvents="none"
-                  >
-                    <SvgDecoration
-                      svgSource={resolveUrl(dec.element.svg_source)}
-                      imageUrl={getDecorationSource(dec.element.element_name, dec.element.image_url)}
-                      size={decSize}
-                      color={dec.color}
-                      colors={dec.colors}
-                    />
-                  </View>
-
-                  {/* ── Selection ring ── */}
-                  {isSelected && (
-                    <View pointerEvents="none" style={styles.selectedRing} />
-                  )}
-
-                  {/* ── Delete button (always visible) ── */}
-                  <TouchableOpacity
-                    style={styles.removeDecorationBtn}
-                    onPress={() => {
-                      removeDecoration(dec.id);
-                      if (isSelected) setSelectedDecorationId(null);
-                    }}
-                  >
-                    <Ionicons name="close-circle" size={20} color="#EF4444" />
-                  </TouchableOpacity>
-
-                  {/* ── Rotate buttons — only when this decoration is selected ── */}
-                  {isSelected && (
-                    <>
-                      <TouchableOpacity
-                        style={[styles.rotateBtn, { left: -32, top: decSize / 2 - 12 }]}
-                        onPress={() => rotateDecoration(dec.id, -15)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="arrow-undo" size={14} color="#fff" />
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.rotateBtn, { right: -32, top: decSize / 2 - 12 }]}
-                        onPress={() => rotateDecoration(dec.id, 15)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="arrow-redo" size={14} color="#fff" />
-                      </TouchableOpacity>
-                    </>
-                  )}
-                </Animated.View>
-              </GestureDetector>
-            );
-          })}
-
-          <Text style={styles.canvasHint}>Drag decorations here</Text>
         </View>
       </View>
     );
@@ -1004,514 +2029,606 @@ const removeReferenceImage = () => setReferenceImage(null);
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={styles.safeArea}>
+        
+        {/* ── Header ── */}
         <LinearGradient colors={[SAGE, SAGE_DARK]} style={styles.header}>
           <TouchableOpacity onPress={goBackToDashboard} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={24} color={SOFT_WHITE} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Cake Customization</Text>
+          <Text style={styles.headerTitle}>Design Your Cake</Text>
           <View style={{ width: 40 }} />
         </LinearGradient>
 
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* ── 3D Canvas Area ── */}
+        <View style={styles.canvasArea}>
+          
           {renderCanvas()}
-          {renderGhost()}
 
-          <View style={styles.librarySection}>
-            {renderCategoryTabs()}
-            {renderLibrary()}
-          </View>
-
-          {/* Options */}
-          <View style={styles.optionsSection}>
-            <Text style={styles.optionsTitle}>Cake Options</Text>
-            <View style={styles.optionRow}>
-              <Text style={styles.optionLabel}>Cake Shape</Text>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {(['round', 'square'] as const).map((shape) => (
-                  <TouchableOpacity
-                    key={shape}
-                    style={[
-                      styles.optionChip,
-                      { minWidth: 100, alignItems: 'center' },
-                      selectedShape === shape && styles.optionChipActive,
-                    ]}
-                    onPress={() => {
-                      setSelectedShape(shape);
-                      // Square + multi-tier not supported in Phase 2a → force 1 tier
-                      if (shape === 'square') {
-                        setTierCount(1);
-                        setActiveTierIndex(0);
-                      }
-                      const first = cakeSizes.find(s => s.shape === shape && s.is_active);
-                      if (first) setSelectedSize(first.id);
-                    }}
-                  >
-                    <Text style={[
-                      styles.optionChipText,
-                      selectedShape === shape && styles.optionChipTextActive,
-                    ]}>
-                      {shape === 'round' ? 'Round' : 'Square'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* ── Tier count selector (Round only) ── */}
-            {selectedShape === 'round' && (
-              <View style={styles.optionRow}>
-                <Text style={styles.optionLabel}>Cake Tiers</Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {[1, 2, 3].map((n) => (
-                    <TouchableOpacity
-                      key={n}
-                      style={[
-                        styles.optionChip,
-                        { minWidth: 80, alignItems: 'center' },
-                        tierCount === n && styles.optionChipActive,
-                      ]}
-                      onPress={() => {
-                        setTierCount(n);
-                        setActiveTierIndex(n - 1);   // default to top tier
-                      }}
-                    >
-                      <Text style={[
-                        styles.optionChipText,
-                        tierCount === n && styles.optionChipTextActive,
-                      ]}>
-                        {n} {n === 1 ? 'tier' : 'tiers'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* ── Active tier selector (only when tierCount > 1) ── */}
-            {tierCount > 1 && (
-              <View style={styles.optionRow}>
-                <Text style={styles.optionLabel}>Decorating Tier</Text>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {Array.from({ length: tierCount }, (_, i) => i).reverse().map((idx) => (
-                    <TouchableOpacity
-                      key={idx}
-                      style={[
-                        styles.optionChip,
-                        { minWidth: 90, alignItems: 'center' },
-                        activeTierIndex === idx && styles.optionChipActive,
-                      ]}
-                      onPress={() => setActiveTierIndex(idx)}
-                    >
-                      <Text style={[
-                        styles.optionChipText,
-                        activeTierIndex === idx && styles.optionChipTextActive,
-                      ]}>
-                        Tier {idx + 1}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            <View style={styles.optionRow}>
-              <Text style={styles.optionLabel}>Size</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {visibleSizes.map(size => (
-                  <TouchableOpacity
-                    key={size.id}
-                    style={[
-                      styles.optionChip,
-                      selectedSize === size.id && styles.optionChipActive,
-                    ]}
-                    onPress={() => setSelectedSize(size.id)}
-                  >
-                    <Text style={[
-                      styles.optionChipText,
-                      selectedSize === size.id && styles.optionChipTextActive,
-                    ]}>
-                      {size.size_name}
-                    </Text>
-                    <Text style={[
-                      styles.optionChipSub,
-                      selectedSize === size.id && { color: SOFT_WHITE },
-                    ]}>
-                      +₱{parseFloat(String(size.price_modifier)) || 0}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            <View style={styles.optionRow}>
-              <Text style={styles.optionLabel}>Cake Flavor</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {cakeFlavors.map(flavor => (
-                  <TouchableOpacity
-                    key={flavor.id}
-                    style={[
-                      styles.optionChip,
-                      selectedFlavor === flavor.id && styles.optionChipActive,
-                    ]}
-                    onPress={() => setSelectedFlavor(flavor.id)}
-                  >
-                    <Text style={[
-                      styles.optionChipText,
-                      selectedFlavor === flavor.id && styles.optionChipTextActive,
-                    ]}>
-                      {flavor.flavor_name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            <View style={styles.optionRow}>
-              <Text style={styles.optionLabel}>Frosting Flavor</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g., Vanilla, Chocolate"
-                value={frostingFlavor}
-                onChangeText={setFrostingFlavor}
-                placeholderTextColor={MUTED_GRAY}
-              />
-            </View>
-
-            <View style={styles.optionRow}>
-              <Text style={styles.optionLabel}>Quantity</Text>
-              <View style={styles.quantityControls}>
-                <TouchableOpacity
-                  onPress={() => setQuantity(Math.max(1, quantity - 1))}
-                  style={styles.qtyBtn}
-                >
-                  <Ionicons name="remove" size={20} color={SAGE} />
-                </TouchableOpacity>
-                <Text style={styles.qtyValue}>{quantity}</Text>
-                <TouchableOpacity
-                  onPress={() => setQuantity(quantity + 1)}
-                  style={styles.qtyBtn}
-                >
-                  <Ionicons name="add" size={20} color={SAGE} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.optionRow}>
-              <Text style={styles.optionLabel}>Special Instructions</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Any special requests..."
-                value={specialInstructions}
-                onChangeText={setSpecialInstructions}
-                multiline
-                numberOfLines={3}
-                placeholderTextColor={MUTED_GRAY}
-              />
-            </View>
-          </View>
-
-          <View style={styles.optionRow}>
-          <Text style={styles.optionLabel}>Reference Image (Optional)</Text>
-          <Text style={{ color: MUTED_GRAY, fontSize: 12, marginBottom: 8 }}>
-            Upload a photo showing the design you'd like us to follow.
-          </Text>
-          {!referenceImage ? (
-            <TouchableOpacity onPress={pickReferenceImage} style={styles.uploadBtn}>
-              <Ionicons name="cloud-upload-outline" size={20} color={SAGE} />
-              <Text style={styles.uploadBtnText}>Choose Image</Text>
+          {/* Floating UI Controls */}
+          <View style={styles.floatingControls}>
+            <TouchableOpacity style={styles.controlBtn} onPress={() => setZoomLevel(prev => Math.max(4, prev - 1))}>
+              <Ionicons name="add" size={22} color={SAGE} />
             </TouchableOpacity>
-          ) : (
-            <View style={{ position: 'relative' }}>
-              <Image
-                source={{ uri: referenceImage.uri }}
-                style={{ width: '100%', height: 180, borderRadius: 12 }}
-                resizeMode="cover"
-              />
-              <TouchableOpacity
-                onPress={removeReferenceImage}
-                style={{ position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 12, padding: 4 }}
-              >
-                <Ionicons name="close-circle" size={24} color="#EF4444" />
+            <TouchableOpacity style={styles.controlBtn} onPress={() => setZoomLevel(prev => Math.min(20, prev + 1))}>
+              <Ionicons name="remove" size={22} color={SAGE} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.controlBtn} onPress={() => setViewMode(prev => prev === 'side' ? 'top' : 'side')}>
+              <Ionicons name="refresh-outline" size={22} color={SAGE} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.controlBtn, { backgroundColor: SAGE }]} onPress={() => setIsAutoRotating(!isAutoRotating)}>
+              <Ionicons name={isAutoRotating ? "pause" : "play"} size={22} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Drag & Drop Indicator */}
+          {draggedElement && (
+            <View style={{ 
+              position: 'absolute', 
+              top: 60, 
+              alignSelf: 'center', 
+              backgroundColor: SAGE, 
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16, 
+              paddingVertical: 8, 
+              borderRadius: 20,
+              zIndex: 99,
+              gap: 12
+            }}>
+              <Text style={{ color: '#fff', fontWeight: 'bold' }}>
+                Tap cake to drop {draggedElement.element_name}
+              </Text>
+              <TouchableOpacity onPress={() => setDraggedElement(null)}>
+                <Ionicons name="close-circle" size={20} color="#fff" />
               </TouchableOpacity>
             </View>
           )}
+
         </View>
 
-          <TouchableOpacity
-            style={styles.summaryButton}
-            onPress={() => setShowSummary(true)}
-          >
-            <LinearGradient
-              colors={[SAGE, SAGE_DARK]}
-              style={styles.summaryButtonGrad}
-            >
-              <Text style={styles.summaryButtonText}>Review Order</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </ScrollView>
-
-        {/* ── Summary Modal ── */}
-        <Modal visible={showSummary} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHandle} />
-              <Text style={styles.modalTitle}>Order Summary</Text>
-
-              <ScrollView style={styles.modalBody}>
-                {/* Summary canvas */}
-                <View style={styles.summaryCanvasWrapper}>
-                  <View
-                    ref={summaryCanvasRef}
-                    style={styles.summaryCanvas}
-                    onLayout={onSummaryLayout}
-                  >
-                    <SvgXml xml={baseCakeXml} width="100%" height="100%" />
-
-                  {Array.isArray(placedDecorations) && placedDecorations
-                    .filter((dec) => !isIcing(dec.element))
-                    .map((dec) => {
-                    const scaledX = dec.x * summaryScale;
-                      const scaledY = dec.y * summaryScale;
-                      const baseSize = 40 * (dec.scale ?? 1);
-                      const scaledSize = baseSize * summaryScale;
-                      return (
-                        <View
-                          key={dec.id}
-                          style={[
-                            styles.summaryDecoration,
-                            {
-                              left: scaledX - scaledSize / 2,
-                              top: scaledY - scaledSize / 2,
-                              width: scaledSize,
-                              height: scaledSize,
-                            },
-                          ]}
-                        >
-                          <SvgDecoration
-                            svgSource={resolveUrl(dec.element.svg_source)}
-                            imageUrl={getDecorationSource(dec.element.element_name, dec.element.image_url)}
-                            size={scaledSize}
-                            color={dec.color}
-                            colors={dec.colors}
-                          />
-                        </View>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                {/* Summary details */}
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Size</Text>
-                  <Text style={styles.summaryValue}>
-                    {cakeSizes.find(s => s.id === selectedSize)?.size_name || '—'}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Flavor</Text>
-                  <Text style={styles.summaryValue}>
-                    {cakeFlavors.find(f => f.id === selectedFlavor)?.flavor_name || '—'}
-                  </Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Frosting</Text>
-                  <Text style={styles.summaryValue}>{frostingFlavor || '—'}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Quantity</Text>
-                  <Text style={styles.summaryValue}>{quantity}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Decorations</Text>
-                  <Text style={styles.summaryValue}>
-                    {Array.isArray(placedDecorations) ? placedDecorations.length : 0}
-                  </Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryTotalLabel}>Total</Text>
-                  <Text style={styles.summaryTotalValue}>₱{calculateTotal().toFixed(2)}</Text>
-                </View>
-              </ScrollView>
-
-              <View style={styles.modalFooter}>
-                <TouchableOpacity
-                  style={[styles.modalBtn, styles.modalBtnCancel]}
-                  onPress={() => setShowSummary(false)}
-                >
-                  <Text style={styles.modalBtnText}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalBtn, styles.modalBtnConfirm]}
-                  onPress={handleConfirmOrder}
-                  disabled={submitting}
-                >
-                  {submitting ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.modalBtnTextConfirm}>Confirm Order</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
+        {/* ── Bottom Sheet (Tab Content) ── */}
+        <View style={styles.bottomSheet}>
+          <View style={styles.bottomSheetHandle} />
+          
+          <View style={styles.sheetHeader}>
+             <Text style={styles.sheetTitle}>
+               {activeTab === 'decorate' && 'Add decorations'}
+               {activeTab === 'cake' && 'Shape, tiers & size'}
+               {activeTab === 'flavor' && 'Flavors'}
+               {activeTab === 'details' && 'Order details'}
+             </Text>
+             <TouchableOpacity style={styles.closeSheetBtn} onPress={() => setActiveTab('decorate')}>
+               <Ionicons name="close" size={20} color={MUTED_GRAY} />
+             </TouchableOpacity>
           </View>
-        </Modal>
 
-        {/* ─── Pickup Schedule Modal (inside cake customization) ─── */}
-        <Modal visible={showPickupModal} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={styles.pickupModal}>
-              <View style={styles.modalHandle} />
-
-              <View style={styles.pickupHeader}>
-                <Text style={styles.pickupTitle}>Set Pickup Schedule</Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    setShowPickupModal(false);
-                    setCustomCakeDraft(null);
-                  }}
-                  style={styles.modalCloseBtn}
-                >
-                  <Ionicons name="close" size={18} color={SOFT_WHITE} />
-                </TouchableOpacity>
-              </View>
-
-              {customCakeDraft && (
-                <ScrollView style={styles.pickupBody} showsVerticalScrollIndicator={false}>
-                  {/* Custom cake summary */}
-                  <View style={styles.pickupItemCard}>
-                    <View
-                      style={[
-                        styles.pickupItemImage,
-                        { position: 'relative', overflow: 'hidden', backgroundColor: CREAM },
-                      ]}
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+            
+            {/* ── TAB 1: DECORATE ── */}
+            {activeTab === 'decorate' && (
+              <View>
+                {/* Decor Category Pills */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 15 }}>
+                  {categories.map(cat => (
+                    <TouchableOpacity 
+                      key={cat} 
+                      style={[styles.categoryPill, selectedCategory === cat && styles.categoryPillActive]}
+                      onPress={() => setSelectedCategory(cat)}
                     >
-                      {/* Base cake — shape-aware */}
-                      <SvgXml xml={baseCakeXml} width="100%" height="100%" />
-
-                      {/* Icing + decorations — reused from renderCanvas, scaled to 80px */}
-                      {placedDecorations.filter((d) => !isIcing(d.element)).map((dec) => {
-                        const previewScale = 80 / 400;
-                        const decSize = 40 * (dec.scale ?? 1) * previewScale;
-                        const x = dec.x * previewScale;
-                        const y = dec.y * previewScale;
-
-                        return (
-                          <View
-                            key={dec.id}
-                            style={{
-                              position: 'absolute',
-                              left: x - decSize / 2,
-                              top: y - decSize / 2,
-                              width: decSize,
-                              height: decSize,
-                            }}
-                            pointerEvents="none"
-                          >
-                            <SvgDecoration
-                              svgSource={resolveUrl(dec.element.svg_source)} 
-                              imageUrl={getDecorationSource(dec.element.element_name, dec.element.image_url)}
-                              size={decSize}
-                              color={dec.color}
-                              colors={dec.colors}
-                            />
-                          </View>
-                        );
-                      })}
-                    </View>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={styles.pickupItemName}>Custom Cake</Text>
-                      <View style={styles.pickupItemDetails}>
-                        <Text style={styles.pickupItemDetail}>Size: {customCakeDraft.sizeName}</Text>
-                        {customCakeDraft.flavorName && (
-                          <Text style={styles.pickupItemDetail}>Flavor: {customCakeDraft.flavorName}</Text>
-                        )}
-                        {customCakeDraft.frostingFlavor && (
-                          <Text style={styles.pickupItemDetail}>Frosting: {customCakeDraft.frostingFlavor}</Text>
-                        )}
-                        <Text style={styles.pickupItemDetail}>Qty: {customCakeDraft.quantity}</Text>
-                        {customCakeDraft.specialInstructions && (
-                          <Text style={[styles.pickupItemDetail, { fontStyle: 'italic' }]}>
-                            Instructions: {customCakeDraft.specialInstructions}
-                          </Text>
-                        )}
-                      </View>
-                      <Text style={styles.pickupItemTotal}>
-                        Total: ₱{formatMoney(customCakeDraft.totalPrice)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.pickupDivider} />
-
-                  <Text style={styles.scheduleLabel}>PICKUP SCHEDULE</Text>
-
-                  {/* Date Picker */}
-                  <TouchableOpacity
-                    onPress={() => setShowDatePicker(true)}
-                    style={styles.schedulePill}
-                  >
-                    <View style={styles.schedulePillLeft}>
-                      <Ionicons name="calendar-outline" size={16} color={SAGE} />
-                      <Text style={styles.schedulePillLabel}>Date</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.schedulePillValue}>{pickupDate.toDateString()}</Text>
-                      <Ionicons name="chevron-forward" size={14} color={MUTED_GRAY} />
-                    </View>
-                  </TouchableOpacity>
-
-                  <TextInput
-                    placeholder="Special instructions (optional)"
-                    value={orderNotes}
-                    onChangeText={setOrderNotes}
-                    multiline
-                    placeholderTextColor={MUTED_GRAY}
-                    style={styles.notesInput}
-                  />
-
-                  <TouchableOpacity
-                    onPress={placeCustomOrder}
-                    disabled={placingOrder}
-                    activeOpacity={0.88}
-                    style={[styles.placeOrderBtn, placingOrder && { opacity: 0.7 }]}
-                  >
-                    <LinearGradient
-                      colors={[SAGE, SAGE_DARK]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.placeOrderGrad}
-                    >
-                      {placingOrder ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <Text style={styles.placeOrderText}>Place Order</Text>
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
+                      <Text style={[styles.categoryText, selectedCategory === cat && styles.categoryTextActive]}>{cat}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </ScrollView>
-              )}
-            </View>
+
+                {/* Decor Items Grid */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {(elements[selectedCategory || ''] || []).map(item => (
+                    <TouchableOpacity 
+                      key={item.id} 
+                      style={styles.decorCard}
+                      onPress={() => {
+                        // 1. Stop the camera from spinning
+                        setIsAutoRotating(false);
+                        // 2. Enter drop mode
+                        setDraggedElement(item);
+                      }}
+                    >
+                      <View style={styles.decorImgWrap}>
+                        <SvgDecoration 
+                          svgSource={resolveUrl(item.svg_source)} 
+                          imageUrl={getDecorationSource(item.element_name, item.image_url)}
+                          size={40} 
+                        />
+                      </View>
+                      <Text style={styles.decorName} numberOfLines={1}>{item.element_name}</Text>
+                      <Text style={styles.decorPrice}>₱{item.default_price}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                <Text style={styles.hintText}>Tap to choose how many & pattern • drag onto the cake</Text>
+              </View>
+            )}
+
+            {/* ── TAB 2: CAKE ── */}
+            {activeTab === 'cake' && (
+              <View>
+                <Text style={styles.sectionLabel}>SHAPE</Text>
+                <View style={styles.row}>
+                  {['round', 'square'].map(s => (
+                    <TouchableOpacity key={s} style={[styles.optionBtn, selectedShape === s && styles.optionBtnActive]} onPress={() => setSelectedShape(s as CakeShape)}>
+                      <Ionicons name={s === 'round' ? 'ellipse-outline' : 'square-outline'} size={16} color={selectedShape === s ? '#fff' : SAGE} />
+                      <Text style={[styles.optionText, selectedShape === s && styles.optionTextActive]}>{s.charAt(0).toUpperCase() + s.slice(1)}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.sectionLabel}>TIERS</Text>
+                <View style={styles.row}>
+                  {[1, 2, 3].map(n => (
+                    <TouchableOpacity key={n} style={[styles.optionBtn, tierCount === n && styles.optionBtnActive]} onPress={() => setTierCount(n)}>
+                      <Text style={[styles.optionText, tierCount === n && styles.optionTextActive]}>{n}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <Text style={styles.sectionLabel}>SIZE</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {cakeSizes.filter(s => s.shape === selectedShape).map(size => (
+                    <TouchableOpacity key={size.id} style={[styles.sizeCard, selectedSize === size.id && styles.sizeCardActive]} onPress={() => setSelectedSize(size.id)}>
+                      <Text style={[styles.sizeName, selectedSize === size.id && { color: '#fff' }]}>{size.size_name}</Text>
+                      <Text style={[styles.sizePrice, selectedSize === size.id && { color: 'rgba(255,255,255,0.8)' }]}>+₱{size.price_modifier}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* ── TAB 3: FLAVOR ── */}
+            {activeTab === 'flavor' && (
+              <View>
+                <Text style={styles.sectionLabel}>CAKE FLAVOR</Text>
+                <View style={styles.wrapRow}>
+                  {cakeFlavors.map(f => (
+                    <TouchableOpacity key={f.id} style={[styles.pillBtn, selectedFlavor === f.id && styles.pillBtnActive]} onPress={() => setSelectedFlavor(f.id)}>
+                      <Text style={[styles.pillText, selectedFlavor === f.id && styles.pillTextActive]}>{f.flavor_name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                
+                <Text style={styles.sectionLabel}>FROSTING FLAVOR</Text>
+                <View style={styles.wrapRow}>
+                   {/* Example static frostings, you can map your actual data here */}
+                   {['Vanilla', 'Chocolate', 'Strawberry', 'Ube', 'Mocha'].map(f => (
+                    <TouchableOpacity key={f} style={[styles.pillBtn, frostingFlavor === f && styles.pillBtnActive]} onPress={() => setFrostingFlavor(f)}>
+                      <Text style={[styles.pillText, frostingFlavor === f && styles.pillTextActive]}>{f}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* ── TAB 4: DETAILS ── */}
+            {activeTab === 'details' && (
+              <View>
+                <View style={styles.rowBetween}>
+                  
+                  {/* --- QUANTITY SECTION (UNCHANGED) --- */}
+                  <View>
+                    <Text style={styles.sectionLabel}>QUANTITY</Text>
+                    <View style={styles.qtyRow}>
+                      <TouchableOpacity style={styles.qtyBtn} onPress={() => setQuantity(Math.max(1, quantity - 1))}>
+                        <Ionicons name="remove" size={18} color={SAGE} />
+                      </TouchableOpacity>
+                      <Text style={styles.qtyValue}>{quantity}</Text>
+                      <TouchableOpacity style={styles.qtyBtn} onPress={() => setQuantity(quantity + 1)}>
+                        <Ionicons name="add" size={18} color={SAGE} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* --- REFERENCE PHOTO SECTION (FIXED CRASH) --- */}
+                  <View>
+                    <Text style={styles.sectionLabel}>REFERENCE PHOTO</Text>
+                    
+                    {referenceImage ? (
+                      // Wrap in TouchableOpacity to trigger the full-screen view
+                      <TouchableOpacity 
+                        style={styles.imagePreviewWrapper} 
+                        activeOpacity={0.8}
+                        onPress={() => setIsImageModalVisible(true)}
+                      >
+                        <Image
+                          source={{ 
+                            uri: typeof referenceImage === 'string' ? referenceImage : referenceImage?.uri 
+                          }}
+                          style={styles.imagePreview}
+                          resizeMode="contain"
+                        />
+                        
+                        {/* Remove button */}
+                        <TouchableOpacity
+                          style={styles.removeImageBtn}
+                          onPress={(e) => {
+                            e.stopPropagation(); // Stops the modal from opening when clicking the X
+                            setReferenceImage(null);
+                          }}
+                        >
+                          <Ionicons name="close" size={14} color="#FFF" />
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity style={styles.uploadBtn} onPress={pickReferenceImage}>
+                        <Ionicons name="image-outline" size={18} color={SAGE} />
+                        <Text style={styles.uploadText}>Add photo</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                </View>
+
+                {/* --- SPECIAL INSTRUCTIONS (UNCHANGED) --- */}
+                <Text style={styles.sectionLabel}>SPECIAL INSTRUCTIONS</Text>
+                <TextInput
+                  style={styles.textArea}
+                  placeholder="Message on cake, allergies, theme..."
+                  placeholderTextColor={MUTED_GRAY}
+                  multiline
+                  value={specialInstructions}
+                  onChangeText={setSpecialInstructions}
+                />
+              </View>
+
+            )}
+
+          </ScrollView>
+        </View>
+
+        {/* ── FULL SCREEN IMAGE MODAL ── */}
+        <Modal
+          visible={isImageModalVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setIsImageModalVisible(false)}
+        >
+          <View style={styles.modalBackground}>
+            {/* Close Button */}
+            <TouchableOpacity
+              style={styles.modalCloseBtn}
+              onPress={() => setIsImageModalVisible(false)}
+            >
+              <Ionicons name="close" size={28} color="#FFF" />
+            </TouchableOpacity>
+            
+            {/* Full Size Image */}
+            {referenceImage && (
+              <Image
+                source={{ 
+                  uri: typeof referenceImage === 'string' ? referenceImage : referenceImage?.uri 
+                }}
+                style={styles.fullScreenImage}
+                resizeMode="contain"
+              />
+            )}
           </View>
         </Modal>
 
-        {/* ─── Date Picker ─── */}
-        {showDatePicker && (
-          <DateTimePicker
-            value={pickupDate}
-            mode="date"
-            minimumDate={new Date()}
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={(event, selectedDate) => {
-              setShowDatePicker(false);
-              if (selectedDate) {
-                setPickupDate(selectedDate);
-                Alert.alert('Date updated', `New pickup date: ${selectedDate.toDateString()}`);
-              }
-            }}
-          />
-        )}
+        {/* ── Bottom Navigation Bar ── */}
+        <View style={styles.bottomNav}>
+          <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('decorate')}>
+            <MaterialCommunityIcons name="palette" size={22} color={activeTab === 'decorate' ? SAGE : MUTED_GRAY} />
+            <Text style={[styles.navText, activeTab === 'decorate' && styles.navTextActive]}>Decorate</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('cake')}>
+            <MaterialCommunityIcons name="layers" size={22} color={activeTab === 'cake' ? SAGE : MUTED_GRAY} />
+            <Text style={[styles.navText, activeTab === 'cake' && styles.navTextActive]}>Cake</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('flavor')}>
+            <MaterialCommunityIcons name="ice-cream" size={22} color={activeTab === 'flavor' ? SAGE : MUTED_GRAY} />
+            <Text style={[styles.navText, activeTab === 'flavor' && styles.navTextActive]}>Flavor</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.navItem} onPress={() => setActiveTab('details')}>
+            <MaterialCommunityIcons name="pencil-outline" size={22} color={activeTab === 'details' ? SAGE : MUTED_GRAY} />
+            <Text style={[styles.navText, activeTab === 'details' && styles.navTextActive]}>Details</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.reviewBtn} onPress={() => setShowSummary(true)}>
+            <Text style={styles.reviewPrice}>₱{calculateTotal().toFixed(2)}</Text>
+            <Text style={styles.reviewText}>Review →</Text>
+          </TouchableOpacity>
+        </View>
+
       </SafeAreaView>
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* YOUR EXISTING MODALS (UNTOUCHED) ARE INSERTED BELOW            */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+
+      {/* ── Summary Modal ── */}
+      <Modal visible={showSummary} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Order Summary</Text>
+
+            <ScrollView style={styles.modalBody}>
+              {/* Summary canvas - NOW 3D */}
+              <View style={styles.summaryCanvasWrapper}>
+                <View
+                  style={[styles.summaryCanvas, { borderWidth: 0, backgroundColor: '#F8F5F0' }]}
+                >
+                  <Canvas>
+                    <ambientLight intensity={0.5} />
+                    <directionalLight position={[5, 10, 5]} intensity={1.5} />
+                    <directionalLight position={[-5, 5, -5]} intensity={0.5} />
+                    
+                    <Cake3D
+                      shape={selectedShape}
+                      tierCount={tierCount}
+                      sizeInches={cakeSizes.find(s => s.id === selectedSize)?.size_inches || 8}
+                      tierFrostings={tierFrostings}
+                      placedDecorations={placedDecorations}
+                      
+                      // 👇 USE STATIC VALUES HERE
+                      isAutoRotating={false} 
+                      rotationX={summaryRotationX} 
+                      rotationY={summaryRotationY}
+                      zoomLevel={10} 
+                      viewMode="side"
+
+                      // 👇 FIX THE FADED DECORATIONS
+                      selectedDecorationId={null} 
+                      
+                      activeTab={activeTab}
+                      activeDraggedElement={draggedElement}
+                      onDropDecoration={handleDropDecoration}
+                    />
+                  </Canvas>
+                </View>
+              </View>
+
+              {/* Summary details */}
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Size</Text>
+                <Text style={styles.summaryValue}>
+                  {cakeSizes.find(s => s.id === selectedSize)?.size_name || '—'}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Flavor</Text>
+                <Text style={styles.summaryValue}>
+                  {cakeFlavors.find(f => f.id === selectedFlavor)?.flavor_name || '—'}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Frosting</Text>
+                <Text style={styles.summaryValue}>{frostingFlavor || '—'}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Quantity</Text>
+                <Text style={styles.summaryValue}>{quantity}</Text>
+              </View>
+              {/* 1. The clickable row with the up/down chevron */}
+              <TouchableOpacity
+                style={styles.summaryRow}
+                onPress={() => setShowDecorationDetails(!showDecorationDetails)}
+                activeOpacity={0.7}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.summaryLabel}>Decorations</Text>
+                  <Ionicons
+                    name={showDecorationDetails ? 'chevron-up' : 'chevron-down'}
+                    size={16}
+                    color={MUTED_GRAY}
+                    style={{ marginLeft: 8 }}
+                  />
+                </View>
+                <Text style={styles.summaryValue}>{placedDecorations?.length || 0}</Text>
+              </TouchableOpacity>
+
+              {/* 2. The expandable list of decorations (UPDATED WITH PRICES) */}
+              {showDecorationDetails && placedDecorations && placedDecorations.length > 0 && (
+                <View style={styles.decorationListContainer}>
+                  {placedDecorations.map((dec, index) => (
+                    <View key={index} style={styles.decorationListItem}>
+                      
+                      {/* Left Side: Icon and Name */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <Ionicons name="ellipse" size={6} color={SAGE} style={{ marginRight: 8 }} />
+                        <Text style={styles.decorationItemText}>
+                          {dec.element?.element_name || 'Unknown Decoration'}
+                        </Text>
+                      </View>
+
+                      {/* Right Side: Price */}
+                      <Text style={styles.decorationItemPrice}>
+                        ₱{Number(dec.element?.default_price || 0).toFixed(2)}
+                      </Text>
+
+                    </View>
+                  ))}
+                </View>
+              )}
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryTotalLabel}>Total</Text>
+                <Text style={styles.summaryTotalValue}>₱{calculateTotal().toFixed(2)}</Text>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setShowSummary(false)}
+              >
+                <Text style={styles.modalBtnText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnConfirm]}
+                onPress={handleConfirmOrder}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnTextConfirm}>Confirm Order</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─── Pickup Schedule Modal (inside cake customization) ─── */}
+      <Modal visible={showPickupModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.pickupModal}>
+            <View style={styles.modalHandle} />
+
+            <View style={styles.pickupHeader}>
+              <Text style={styles.pickupTitle}>Set Pickup Schedule</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowPickupModal(false);
+                  setCustomCakeDraft(null);
+                }}
+                style={styles.modalCloseBtn}
+              >
+                <Ionicons name="close" size={18} color={SOFT_WHITE} />
+              </TouchableOpacity>
+            </View>
+
+            {customCakeDraft && (
+              <ScrollView style={styles.pickupBody} showsVerticalScrollIndicator={false}>
+                {/* Custom cake summary */}
+                <View style={styles.pickupItemCard}>
+                  <View
+                    style={[
+                      styles.pickupItemImage,
+                      { position: 'relative', overflow: 'hidden', backgroundColor: '#F8F5F0', width: 80, height: 80 },
+                    ]}
+                  >
+                    <Canvas>
+                      <ambientLight intensity={0.6} />
+                      <directionalLight position={[5, 10, 5]} intensity={1.5} />
+                      <Cake3D
+                        shape={selectedShape}
+                        tierCount={tierCount}
+                        sizeInches={cakeSizes.find(s => s.id === selectedSize)?.size_inches || 8}
+                        tierFrostings={tierFrostings}
+                        placedDecorations={placedDecorations}
+                        
+                        // 👇 USE STATIC VALUES HERE
+                        isAutoRotating={false}
+                        rotationX={summaryRotationX} 
+                        rotationY={summaryRotationY}
+                        zoomLevel={12} 
+                        viewMode="side"
+
+                        // 👇 FIX THE FADED DECORATIONS
+                        selectedDecorationId={null} 
+
+                        activeTab={activeTab}
+                        activeDraggedElement={draggedElement}
+                        onDropDecoration={handleDropDecoration}
+                      />
+                    </Canvas>
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.pickupItemName}>Custom Cake</Text>
+                    <View style={styles.pickupItemDetails}>
+                      <Text style={styles.pickupItemDetail}>Size: {customCakeDraft.sizeName}</Text>
+                      {customCakeDraft.flavorName && (
+                        <Text style={styles.pickupItemDetail}>Flavor: {customCakeDraft.flavorName}</Text>
+                      )}
+                      {customCakeDraft.frostingFlavor && (
+                        <Text style={styles.pickupItemDetail}>Frosting: {customCakeDraft.frostingFlavor}</Text>
+                      )}
+                      <Text style={styles.pickupItemDetail}>Qty: {customCakeDraft.quantity}</Text>
+                      {customCakeDraft.specialInstructions && (
+                        <Text style={[styles.pickupItemDetail, { fontStyle: 'italic' }]}>
+                          Instructions: {customCakeDraft.specialInstructions}
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={styles.pickupItemTotal}>
+                      Total: ₱{formatMoney(customCakeDraft.totalPrice)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.pickupDivider} />
+
+                <Text style={styles.scheduleLabel}>PICKUP SCHEDULE</Text>
+
+                {/* Date Picker */}
+                <TouchableOpacity
+                  onPress={() => setShowDatePicker(true)}
+                  style={styles.schedulePill}
+                >
+                  <View style={styles.schedulePillLeft}>
+                    <Ionicons name="calendar-outline" size={16} color={SAGE} />
+                    <Text style={styles.schedulePillLabel}>Date</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.schedulePillValue}>{pickupDate.toDateString()}</Text>
+                    <Ionicons name="chevron-forward" size={14} color={MUTED_GRAY} />
+                  </View>
+                </TouchableOpacity>
+
+                <TextInput
+                  placeholder="Special instructions (optional)"
+                  value={orderNotes}
+                  onChangeText={setOrderNotes}
+                  multiline
+                  placeholderTextColor={MUTED_GRAY}
+                  style={styles.notesInput}
+                />
+
+                <TouchableOpacity
+                  onPress={placeCustomOrder}
+                  disabled={placingOrder}
+                  activeOpacity={0.88}
+                  style={[styles.placeOrderBtn, placingOrder && { opacity: 0.7 }]}
+                >
+                  <LinearGradient
+                    colors={[SAGE, SAGE_DARK]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.placeOrderGrad}
+                  >
+                    {placingOrder ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.placeOrderText}>Place Order</Text>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─── Date Picker ─── */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={pickupDate}
+          mode="date"
+          minimumDate={new Date()}
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(event, selectedDate) => {
+            setShowDatePicker(false);
+            if (selectedDate) {
+              setPickupDate(selectedDate);
+              Alert.alert('Date updated', `New pickup date: ${selectedDate.toDateString()}`);
+            }
+          }}
+        />
+      )}
+
     </GestureHandlerRootView>
   );
 }
@@ -1522,21 +2639,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: CREAM,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backBtn: {
-    padding: 4,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: SOFT_WHITE,
-  },
+  // header: {
+  //   flexDirection: 'row',
+  //   alignItems: 'center',
+  //   justifyContent: 'space-between',
+  //   paddingHorizontal: 16,
+  //   paddingVertical: 12,
+  // },
+  // backBtn: {
+  //   padding: 4,
+  // },
+  // headerTitle: {
+  //   fontSize: 18,
+  //   fontWeight: '700',
+  //   color: SOFT_WHITE,
+  // },
   container: {
     flex: 1,
     paddingHorizontal: 16,
@@ -1744,30 +2861,30 @@ const styles = StyleSheet.create({
     color: SAGE,
     backgroundColor: '#FAFAFA',
   },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
+  // textArea: {
+  //   height: 80,
+  //   textAlignVertical: 'top',
+  // },
   quantityControls: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  qtyBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(79,95,82,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  qtyValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: SAGE,
-    minWidth: 30,
-    textAlign: 'center',
-  },
+  // qtyBtn: {
+  //   width: 32,
+  //   height: 32,
+  //   borderRadius: 16,
+  //   backgroundColor: 'rgba(79,95,82,0.08)',
+  //   alignItems: 'center',
+  //   justifyContent: 'center',
+  // },
+  // qtyValue: {
+  //   fontSize: 18,
+  //   fontWeight: '700',
+  //   color: SAGE,
+  //   minWidth: 30,
+  //   textAlign: 'center',
+  // },
   summaryButton: {
     borderRadius: 16,
     overflow: 'hidden',
@@ -1848,22 +2965,47 @@ const styles = StyleSheet.create({
   summaryDecImage: {
     resizeMode: 'contain',
   },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(242,237,228,0.8)',
-  },
-  summaryLabel: {
-    fontSize: 14,
-    color: MUTED_GRAY,
-  },
-  summaryValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: SAGE,
-  },
+summaryRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingVertical: 14,
+  borderBottomWidth: 1,
+  borderBottomColor: '#F0F0F0', // Adjust to match your exact divider color
+},
+summaryLabel: {
+  fontSize: 15,
+  color: MUTED_GRAY,
+},
+summaryValue: {
+  fontSize: 15,
+  fontWeight: '600',
+  color: SAGE,
+},
+decorationListContainer: {
+  paddingVertical: 10,
+  paddingHorizontal: 16,
+  backgroundColor: '#F9F9F9', // Light background to distinguish the list
+  borderRadius: 8,
+  marginBottom: 10,
+},
+decorationListItem: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between', // <-- ADD THIS to push price to the right
+  paddingVertical: 6,
+},
+decorationItemText: {
+  fontSize: 14,
+  color: SAGE,
+  textTransform: 'capitalize',
+},
+// ADD THIS NEW STYLE
+decorationItemPrice: {
+  fontSize: 14,
+  fontWeight: '600',
+  color: SAGE, // Matches your theme's green
+},
   summaryDivider: {
     height: 1,
     backgroundColor: 'rgba(166,162,154,0.2)',
@@ -2038,27 +3180,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.2,
   },
-  modalCloseBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  // modalCloseBtn: {
+  //   width: 32,
+  //   height: 32,
+  //   borderRadius: 10,
+  //   backgroundColor: 'rgba(255,255,255,0.12)',
+  //   alignItems: 'center',
+  //   justifyContent: 'center',
+  // },
 
-    uploadBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: SAGE,
-    borderStyle: 'dashed',
-    backgroundColor: 'rgba(79,95,82,0.04)',
-  },
+  //   uploadBtn: {
+  //   flexDirection: 'row',
+  //   alignItems: 'center',
+  //   justifyContent: 'center',
+  //   gap: 8,
+  //   paddingVertical: 12,
+  //   borderRadius: 12,
+  //   borderWidth: 1.5,
+  //   borderColor: SAGE,
+  //   borderStyle: 'dashed',
+  //   backgroundColor: 'rgba(79,95,82,0.04)',
+  // },
   uploadBtnText: {
     fontSize: 14,
     fontWeight: '600',
@@ -2091,4 +3233,173 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+    controlBtnRight: {
+    position: 'absolute',
+    right: 15,
+    top: 15,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    padding: 8,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  zoomControls: {
+    position: 'absolute',
+    right: 15,
+    top: '40%',
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  zoomBtn: {
+    padding: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(166,162,154,0.2)',
+  },
+
+    // Replace your old canvas and options styles with these:
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
+  backBtn: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: SOFT_WHITE },
+  
+  canvasArea: { flex: 1.2, position: 'relative' },
+  peekBtn: { 
+    position: 'absolute', top: 15, left: 15, 
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 6, 
+    borderRadius: 20, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, elevation: 3
+  },
+  peekText: { fontSize: 12, fontWeight: '600', color: SAGE },
+  
+  floatingControls: { position: 'absolute', top: 15, right: 15, gap: 10 },
+  controlBtn: { 
+    width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', 
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, elevation: 3
+  },
+
+  bottomSheet: { 
+    flex: 1, backgroundColor: '#fff', 
+    borderTopLeftRadius: 30, borderTopRightRadius: 30, 
+    padding: 20, marginTop: -20, 
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 10
+  },
+  bottomSheetHandle: { width: 40, height: 5, backgroundColor: '#E0E0E0', borderRadius: 10, alignSelf: 'center', marginBottom: 15 },
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  sheetTitle: { fontSize: 18, fontWeight: '700', color: SAGE },
+  closeSheetBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center' },
+
+  // Decorate Tab
+  categoryPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#F5F5F5', marginRight: 10, borderWidth: 1, borderColor: '#EAEAEA' },
+  categoryPillActive: { backgroundColor: SAGE, borderColor: SAGE },
+  categoryText: { fontSize: 13, fontWeight: '600', color: MUTED_GRAY },
+  categoryTextActive: { color: '#fff' },
+  decorCard: { width: 90, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#EEE', alignItems: 'center', padding: 10, marginRight: 10 },
+  decorImgWrap: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#F9F9F9', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  decorName: { fontSize: 11, fontWeight: '600', color: SAGE, textAlign: 'center' },
+  decorPrice: { fontSize: 11, color: MUTED_GRAY, marginTop: 2 },
+  hintText: { fontSize: 11, color: MUTED_GRAY, textAlign: 'center', marginTop: 15 },
+
+  // Cake & Flavor Tabs
+  sectionLabel: { fontSize: 11, fontWeight: '700', color: SAGE, letterSpacing: 0.5, marginBottom: 8, marginTop: 10 },
+  row: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  optionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#F9F9F9' },
+  optionBtnActive: { backgroundColor: SAGE, borderColor: SAGE },
+  optionText: { fontSize: 14, fontWeight: '600', color: MUTED_GRAY },
+  optionTextActive: { color: '#fff' },
+  
+  sizeCard: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: '#DDD', marginRight: 10, backgroundColor: '#F9F9F9', alignItems: 'center' },
+  sizeCardActive: { backgroundColor: SAGE, borderColor: SAGE },
+  sizeName: { fontSize: 13, fontWeight: '700', color: SAGE },
+  sizePrice: { fontSize: 11, color: MUTED_GRAY, marginTop: 4 },
+  
+  wrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pillBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#DDD', backgroundColor: '#F9F9F9' },
+  pillBtnActive: { backgroundColor: SAGE, borderColor: SAGE },
+  pillText: { fontSize: 13, fontWeight: '600', color: MUTED_GRAY },
+  pillTextActive: { color: '#fff' },
+
+  // Details Tab
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  qtyBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F0F0F0', alignItems: 'center', justifyContent: 'center' },
+  qtyValue: { fontSize: 18, fontWeight: '700', color: SAGE },
+  uploadBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: SAGE, backgroundColor: '#F9F9F9' },
+  uploadText: { fontSize: 13, fontWeight: '600', color: SAGE },
+  textArea: { backgroundColor: '#F9F9F9', borderWidth: 1, borderColor: '#DDD', borderRadius: 12, padding: 12, height: 80, textAlignVertical: 'top', marginTop: 4 },
+
+  // Bottom Nav Bar
+  bottomNav: { 
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', 
+    backgroundColor: '#fff', paddingHorizontal: 15, paddingVertical: 10, 
+    borderTopWidth: 1, borderTopColor: '#EEE' 
+  },
+  navItem: { alignItems: 'center', gap: 4, padding: 5 },
+  navText: { fontSize: 10, fontWeight: '600', color: MUTED_GRAY },
+  navTextActive: { color: SAGE },
+  reviewBtn: { 
+    backgroundColor: SAGE, paddingHorizontal: 16, paddingVertical: 10, 
+    borderRadius: 20, alignItems: 'flex-end' 
+  },
+  reviewPrice: { fontSize: 13, fontWeight: '800', color: '#fff' },
+  reviewText: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.8)' },
+
+
+  imagePreviewWrapper: {
+  width: 120,             // Matches the width of your upload button
+  height: 45,             // Matches the height of your upload button
+  borderRadius: 10,
+  borderWidth: 1,
+  borderColor: '#A6A29A', // Or your specific border color
+  backgroundColor: '#F2EDE4', // Light background so transparent images are visible
+  overflow: 'hidden',
+  position: 'relative',
+  marginTop: 4,           // Aligns with the design
+},
+imagePreview: {
+  width: '100%',
+  height: '100%',
+},
+removeImageBtn: {
+  position: 'absolute',
+  top: 2,
+  right: 2,
+  backgroundColor: 'rgba(0,0,0,0.6)',
+  borderRadius: 10,
+  width: 20,
+  height: 20,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+
+modalBackground: {
+  flex: 1,
+  backgroundColor: 'rgba(0,0,0,0.9)', // Dark overlay
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+modalCloseBtn: {
+  position: 'absolute',
+  top: 50,
+  right: 20,
+  zIndex: 10,
+  padding: 10,
+  backgroundColor: 'rgba(255,255,255,0.2)',
+  borderRadius: 30,
+},
+fullScreenImage: {
+  width: '100%',
+  height: '100%',
+},
+
+
+
 });

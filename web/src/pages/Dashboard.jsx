@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/auth-context';
 import {
   LayoutDashboard, Users, Package, Box, Percent, BarChart3,
   LogOut, Cake, Menu, UserCheck, ShoppingBag, Calendar, Award,
-  AlertTriangle, ChevronDown,
+  AlertTriangle, ChevronDown,  Trash2,
 } from 'lucide-react';
 
 const menuItems = [
@@ -26,12 +26,13 @@ const menuItems = [
       { name: 'Lost & Damages', icon: AlertTriangle, path: '/pages/dashboard/lost-and-damages' },
     ],
   },
+  { name: 'Recycle Bin', icon: Trash2,          path: '/pages/dashboard/recycle-bin' },
 ];
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout } = useAuth(); 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState({});
