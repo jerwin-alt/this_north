@@ -20,7 +20,7 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        'https://north-cakes-owner-portal.up.railway.app',
+        'thisnorth-production.up.railway.app',
         'http://localhost:5173',
         ],
 
