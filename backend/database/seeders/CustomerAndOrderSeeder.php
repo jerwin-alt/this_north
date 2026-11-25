@@ -18,6 +18,12 @@ class CustomerAndOrderSeeder extends Seeder
 {
     public function run(): void
     {
+        // 🛡️ LOOPHOLE FIX: Stop execution if customers already exist!
+        if (User::where('role', 'customer')->exists()) {
+            $this->command->info('Customers already exist. Skipping CustomerAndOrderSeeder to prevent duplicates.');
+            return;
+        }
+
         $faker = \Faker\Factory::create();
         
         // Fetch some existing data so foreign keys don't fail
