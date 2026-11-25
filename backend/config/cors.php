@@ -20,8 +20,8 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        'https://north-cakes-production.up.railway.app',   // ✅ frontend origin, with scheme
-        'https://thisnorth-production-backend.up.railway.app', // backend origin (self, for /storage)
+        'https://north-cakes-production-7b69157f.up.railway.app',   // ✅ frontend origin, with scheme
+        'https://thisnorth-production.up.railway.app', // backend origin (self, for /storage)
         'http://localhost:5173',
         'http://127.0.0.1:5173',
     ],
