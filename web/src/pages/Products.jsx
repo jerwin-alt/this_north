@@ -905,17 +905,25 @@ export default function Products() {
                 >
                   {/* Image */}
                   <div style={{ aspectRatio: '4/3', background: CREAM, position: 'relative', overflow: 'hidden' }}>
-                    {product.image_url ? (
+                    {/* 1. Always render the fallback placeholder in the background */}
+                    <div className="w-full h-full flex items-center justify-center absolute inset-0" style={{ background: `linear-gradient(135deg, ${CREAM}, ${SOFT_WHITE})` }}>
+                      <Package style={{ color: MUTED_GRAY, opacity: 0.3 }} size={48} />
+                    </div>
+
+                    {/* 2. Render the image on top if it exists. If the URL breaks (404), onError hides it to reveal the fallback. */}
+                    {product.image_url && (
                       <img
-                        // src={product.image_url.startsWith('http') ? product.image_url : `http://10.90.129.170:8000${product.image_url}`}
-                        src={getFullImageUrl(product.image_url)}
+                        src={
+                          product.image_url.startsWith('http')
+                            ? product.image_url
+                            : `${(import.meta.env.VITE_API_URL || 'https://thisnorth-production.up.railway.app/api').replace(/\/api\/?$/, '')}${product.image_url.startsWith('/') ? '' : '/'}${product.image_url}`
+                        }
                         alt={product.name}
-                        className="product-card-img w-full h-full object-cover"
+                        className="product-card-img w-full h-full object-cover absolute inset-0"
+                        onError={(e) => {
+                          e.target.style.display = 'none'; // Hides broken image to show the placeholder
+                        }}
                       />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${CREAM}, ${SOFT_WHITE})` }}>
-                        <Package style={{ color: MUTED_GRAY, opacity: 0.3 }} size={48} />
-                      </div>
                     )}
 
                     {/* Gradient overlay at bottom of image */}
