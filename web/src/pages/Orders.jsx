@@ -178,6 +178,10 @@ export default function Orders() {
   // ── Image Preview Modal State ──
   const [imagePreviewModal, setImagePreviewModal] = useState({ show: false, url: null, design: null });
 
+  const [selectedDecoration, setSelectedDecoration] = useState(null);
+
+  const [expandedDecorations, setExpandedDecorations] = useState({});
+
   // ── Admin Reply State ──
   const [replyInput, setReplyInput] = useState({});
   const [replyingFeedbackId, setReplyingFeedbackId] = useState(null);
@@ -1799,7 +1803,35 @@ export default function Orders() {
                               <p><strong>Size:</strong> {design.cake_size?.size_name || 'N/A'}</p>
                               <p><strong>Flavor:</strong> {design.cake_flavor?.flavor_name || 'N/A'}</p>
                               <p><strong>Frosting:</strong> {design.frosting_flavor || 'N/A'}</p>
-                              <p><strong>Decorations:</strong> {design.decorations_with_elements?.length || 0}</p>
+                              {/* 👇 Expandable Decorations List */}
+                              <div className="mt-1">
+                                <div 
+                                  onClick={() => setExpandedDecorations(prev => ({ ...prev, [idx]: !prev[idx] }))}
+                                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+                                >
+                                  <p style={{ margin: 0 }}><strong>Decorations:</strong> {design.decorations_with_elements?.length || 0}</p>
+                                  <span style={{ marginLeft: 8, fontSize: '0.8rem', color: SAGE }}>
+                                    {expandedDecorations[idx] ? '▲' : '▼'}
+                                  </span>
+                                </div>
+
+                                {expandedDecorations[idx] && design.decorations_with_elements?.length > 0 && (
+                                  <div style={{ marginTop: 8, paddingLeft: 8, borderLeft: `2px solid rgba(166,162,154,0.3)`, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    {design.decorations_with_elements.map((dec, dIdx) => {
+                                      // Safely handle both flat (web) and nested (mobile) data structures
+                                      const name = dec.element_name || dec.element?.element_name || 'Unknown Decoration';
+                                      const price = dec.default_price ?? dec.element?.default_price ?? 0;
+                                      
+                                      return (
+                                        <div key={dIdx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: MUTED_GRAY }}>
+                                          <span>• {name}</span>
+                                          <span style={{ fontWeight: 600, color: SAGE }}>₱{Number(price).toFixed(2)}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                               {design.special_instructions && (
                                 <p><strong>Instructions:</strong> {design.special_instructions}</p>
                               )}
@@ -2024,49 +2056,97 @@ export default function Orders() {
       )}
 
       {imagePreviewModal.show && (
-        <div
-          className="image-preview-overlay"
-          onClick={() => setImagePreviewModal({ show: false, url: null, design: null })}
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+          onClick={() => {
+            setImagePreviewModal({ show: false, url: null, design: null });
+            setSelectedDecoration(null);
+          }}
         >
-          {imagePreviewModal.design ? (
-            (() => {
-              const previewSize = Math.min(
-                typeof window !== 'undefined' ? window.innerWidth * 0.85 : 500,
-                typeof window !== 'undefined' ? window.innerHeight * 0.85 : 500,
-                600
-              );
-              return (
-                <div
-                  style={{
-                    width: previewSize,
-                    height: previewSize,
-                    background: '#f5f0ea',
-                    borderRadius: 8,
-                    boxShadow: '0 4px 30px rgba(0,0,0,0.3)',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <CakePreviewShared
-                    design={imagePreviewModal.design}
-                    size={previewSize}
-                    getFullImageUrl={getFullImageUrl}
-                    getFallbackUrl={getFallbackUrl}
-                    emptyState={
-                      <div style={{ padding: 40, color: '#A6A29A', textAlign: 'center' }}>
-                        No custom design
-                      </div>
+          <div 
+            className="bg-white rounded-2xl relative flex flex-col items-center overflow-hidden shadow-2xl"
+            style={{ width: '90vw', maxWidth: 700, height: '90vh', maxHeight: 800 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button */}
+            <button 
+              onClick={() => {
+                setImagePreviewModal({ show: false, url: null, design: null });
+                setSelectedDecoration(null);
+              }}
+              className="absolute top-4 right-4 z-20 p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+            >
+              <X size={20} />
+            </button>
+
+            {imagePreviewModal.design ? (
+              <>
+                <h3 className="text-xl font-bold py-4" style={{ color: SAGE }}>
+                  Interactive Cake Preview
+                </h3>
+                
+                {/* 3D Canvas Area - Flex 1 makes it fill the available space */}
+                <div className="flex-1 w-full relative">
+                <Cake3DPreview 
+                  designData={imagePreviewModal.design} 
+                  size={600} 
+                  interactive={true} 
+                  selectedDecoration={selectedDecoration}
+                  onSelectDecoration={(dec) => {
+                    if (selectedDecoration === dec) {
+                      setSelectedDecoration(null); // Deselect
+                    } else {
+                      setSelectedDecoration(dec);  // Select
                     }
-                  />
+                  }}
+                />
+
+                  {/* Floating Decoration Info Card */}
+                  {selectedDecoration && (
+                    <div 
+                      className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-30 w-[80%] max-w-sm p-4 rounded-xl shadow-xl border animate-fadeIn"
+                      style={{ 
+                        borderColor: CREAM, 
+                        background: 'rgba(255, 255, 255, 0.95)',
+                        backdropFilter: 'blur(10px)',
+                      }}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-bold text-lg" style={{ color: SAGE }}>
+                            {/* Check for nested element name (mobile) OR flat name (backend) */}
+                            {selectedDecoration.element?.element_name || selectedDecoration.element_name || 'Unknown Decoration'}
+                          </h4>
+                          <p className="text-sm font-medium mt-1" style={{ color: '#1a7a3c' }}>
+                            {/* Check for nested element price (mobile) OR flat price (backend) */}
+                            ₱{Number(selectedDecoration.element?.default_price ?? selectedDecoration.default_price ?? 0).toFixed(2)}
+                          </p>
+                        </div>
+                        <button 
+                          onClick={() => setSelectedDecoration(null)}
+                          className="p-1 rounded-full hover:bg-gray-100"
+                          style={{ color: MUTED_GRAY }}
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              );
-            })()
-          ) : (
-            <img src={imagePreviewModal.url} alt="Preview" />
-          )}
+
+                {/* Helper Text */}
+                <div className="w-full p-3 text-center text-xs" style={{ color: MUTED_GRAY, background: CREAM }}>
+                  Drag to rotate • Scroll to zoom • Click a decoration to view details
+                </div>
+              </>
+            ) : (
+              <img 
+                src={imagePreviewModal.url} 
+                alt="Preview" 
+                className="max-w-full max-h-full object-contain p-4" 
+              />
+            )}
+          </div>
         </div>
       )}
 

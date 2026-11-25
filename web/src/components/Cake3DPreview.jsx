@@ -1,9 +1,10 @@
 // src/components/Cake3DPreview.jsx
 import React, { useMemo, useRef, Suspense } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
+import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 
-// Helper functions (copied from your backend logic)
+// --- Helper Functions ---
 const getIcingPosition = (name) => {
   const n = (name || '').toLowerCase();
   if (n.includes('side')) return 'side';
@@ -68,12 +69,22 @@ const Piping = ({ shape, radius, yPos }) => {
 };
 
 // --- 3D DECORATION COMPONENT ---
-const Decoration3D = ({ position, rotation, dec }) => {
+const Decoration3D = ({ position, rotation, dec, onSelect, selectedDecoration }) => {
   const name = (dec?.element?.element_name || dec?.element_name || dec?.element?.element_type || '').toLowerCase().trim();
   const scale = dec.scale ?? 1;
 
+  const isDimmed = selectedDecoration != null && selectedDecoration !== dec;
+  const opacity = isDimmed ? 0.25 : 1;
+  const transparent = isDimmed;
+
   if (name.includes('frosting')) return null;
 
+  const handleClick = (e) => {
+    e.stopPropagation();
+    if (onSelect) onSelect(dec);
+  };
+
+  // Strawberry
   if (name.includes('strawberry')) {
     const strawberryPoints = [];
     for (let i = 0; i <= 20; i++) {
@@ -86,10 +97,10 @@ const Decoration3D = ({ position, rotation, dec }) => {
       strawberryPoints.push(new THREE.Vector2(radius, y));
     }
     return (
-      <group position={position} rotation={rotation} scale={[scale, scale, scale]}>
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} onClick={handleClick}>
         <mesh castShadow>
           <latheGeometry args={[strawberryPoints, 32]} />
-          <meshStandardMaterial color="#D90429" roughness={0.4} side={THREE.DoubleSide} />
+          <meshStandardMaterial key={`mat-straw-${isDimmed}`} color="#D90429" roughness={0.4} side={THREE.DoubleSide} transparent={transparent} opacity={opacity} />
         </mesh>
         {Array.from({ length: 15 }).map((_, i) => {
           const angle = (i / 15) * Math.PI * 2;
@@ -98,7 +109,7 @@ const Decoration3D = ({ position, rotation, dec }) => {
           return (
             <mesh key={i} position={[Math.cos(angle) * (radiusAtHeight + 0.01), yPos, Math.sin(angle) * (radiusAtHeight + 0.01)]}>
               <sphereGeometry args={[0.012, 8, 8]} />
-              <meshStandardMaterial color="#FFD700" roughness={0.5} />
+              <meshStandardMaterial key={`mat-seed-${isDimmed}`} color="#FFD700" roughness={0.5} transparent={transparent} opacity={opacity} />
             </mesh>
           );
         })}
@@ -106,45 +117,47 @@ const Decoration3D = ({ position, rotation, dec }) => {
     );
   }
   
+  // Cherry
   if (name.includes('cherry')) {
     return (
-      <group position={position} rotation={rotation} scale={[scale, scale, scale]}>
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} onClick={handleClick}>
         <mesh castShadow scale={[1, 0.9, 1]}>
           <sphereGeometry args={[0.12, 16, 16]} />
-          <meshStandardMaterial color="#9B111E" roughness={0.15} />
+          <meshStandardMaterial key={`mat-cherry-${isDimmed}`} color="#9B111E" roughness={0.15} transparent={transparent} opacity={opacity} />
         </mesh>
         <mesh position={[0.05, 0.15, 0]} rotation={[0, 0, -0.3]}>
           <cylinderGeometry args={[0.008, 0.008, 0.18, 8]} />
-          <meshStandardMaterial color="#6B8E23" roughness={0.8} />
+          <meshStandardMaterial key={`mat-stem-${isDimmed}`} color="#6B8E23" roughness={0.8} transparent={transparent} opacity={opacity} />
         </mesh>
       </group>
     );
   }
 
+  // Blueberry
   if (name.includes('blueberry')) {
     return (
-      <group position={position} rotation={rotation} scale={[scale, scale, scale]}>
+      <group position={position} rotation={rotation} scale={[scale, scale, scale]} onClick={handleClick}>
         <mesh castShadow>
           <sphereGeometry args={[0.1, 16, 16]} />
-          <meshStandardMaterial color="#2E4053" roughness={0.5} />
+          <meshStandardMaterial key={`mat-blue-${isDimmed}`} color="#2E4053" roughness={0.5} transparent={transparent} opacity={opacity} />
         </mesh>
       </group>
     );
   }
 
-  // Default fallback
+  // Default fallback (Catches flowers, macarons, etc.)
   return (
-    <group position={position} rotation={rotation} scale={[scale, scale, scale]}>
+    <group position={position} rotation={rotation} scale={[scale, scale, scale]} onClick={handleClick}>
       <mesh castShadow>
         <sphereGeometry args={[0.08, 16, 16]} />
-        <meshStandardMaterial color="#D4A03D" roughness={0.5} />
+        <meshStandardMaterial key={`mat-def-${isDimmed}`} color="#D4A03D" roughness={0.5} transparent={transparent} opacity={opacity} />
       </mesh>
     </group>
   );
 };
 
 // --- MAIN 3D CAKE COMPONENT ---
-const Cake3D = ({ shape, tierCount, sizeInches, tierFrostings, placedDecorations }) => {
+const Cake3D = ({ shape, tierCount, sizeInches, tierFrostings, placedDecorations, onSelectDecoration, interactive, selectedDecoration }) => {
   const groupRef = useRef();
   const { camera } = useThree();
 
@@ -153,16 +166,17 @@ const Cake3D = ({ shape, tierCount, sizeInches, tierFrostings, placedDecorations
   const tierGap = 0.1;
   const totalHeight = (tierCount * tierHeight) + ((tierCount - 1) * tierGap);
 
-  // Static camera positioning (matches mobile)
   React.useLayoutEffect(() => {
     const dynamicZoom = (10 / 6.5) * (baseRadius * 2.5);
     const targetY = (totalHeight / 2) - 0.3;
     const targetZ = baseRadius + dynamicZoom;
     
-    camera.position.y = targetY;
-    camera.position.z = targetZ;
-    camera.lookAt(0, totalHeight / 2, 0);
-  }, [camera, totalHeight, baseRadius]);
+    if (!interactive) {
+      camera.position.y = targetY;
+      camera.position.z = targetZ;
+      camera.lookAt(0, totalHeight / 2, 0);
+    }
+  }, [camera, totalHeight, baseRadius, interactive]);
 
   const tiers = Array.from({ length: tierCount }).map((_, index) => {
     const tierIndex = tierCount - 1 - index;
@@ -221,10 +235,12 @@ const Cake3D = ({ shape, tierCount, sizeInches, tierFrostings, placedDecorations
 
           return (
             <Decoration3D
-              key={dec.id || i}
+              key={dec.id || `${dec.element_name}-${i}`}
               position={[posX, localY, posZ]}
               rotation={[0, (dec.isTopPlacement ? 0 : (dec.x / 400) * Math.PI * 2) + (dec.rotation || 0) * Math.PI / 180, 0]}
               dec={dec}
+              onSelect={onSelectDecoration}
+              selectedDecoration={selectedDecoration}
             />
           );
         })}
@@ -234,7 +250,6 @@ const Cake3D = ({ shape, tierCount, sizeInches, tierFrostings, placedDecorations
 
   return (
     <group ref={groupRef} rotation={[0.75, Math.PI / 4, 0]}>
-      {/* Cake Board */}
       <group position={[0, -0.1, 0]}>
         <mesh receiveShadow castShadow>
           {shape === 'round' ? <cylinderGeometry args={[baseRadius + 0.2, baseRadius + 0.2, 0.06, 64]} /> : <boxGeometry args={[baseRadius * 2 + 0.4, 0.06, baseRadius * 2 + 0.4]} />}
@@ -247,7 +262,7 @@ const Cake3D = ({ shape, tierCount, sizeInches, tierFrostings, placedDecorations
 };
 
 // --- EXPORTED WRAPPER ---
-export default function Cake3DPreview({ designData, size = 200 }) {
+export default function Cake3DPreview({ designData, size = 200, interactive = false, onSelectDecoration, selectedDecoration }) {
   const shape = designData?.cake_size?.shape || 'round';
   const sizeInches = designData?.cake_size?.size_inches || 8;
   const tierCount = designData?.tiers || 1;
@@ -267,11 +282,23 @@ export default function Cake3DPreview({ designData, size = 200 }) {
   }, [placedDecorations]);
 
   return (
-    <div style={{ width: size, height: size, overflow: 'hidden', borderRadius: 8, backgroundColor: '#F9F9F9', pointerEvents: 'none' }}>
+    <div 
+      style={{ 
+        width: interactive ? '100%' : size, 
+        height: interactive ? '100%' : size, 
+        overflow: 'hidden', 
+        borderRadius: 8, 
+        backgroundColor: '#F9F9F9', 
+        pointerEvents: interactive ? 'auto' : 'none' 
+      }}
+    >
       <Canvas>
         <ambientLight intensity={0.6} />
         <directionalLight position={[5, 10, 5]} intensity={1.5} castShadow />
         <directionalLight position={[-5, 5, -5]} intensity={0.5} />
+        
+        {interactive && <OrbitControls enablePan={false} enableZoom={true} />}
+        
         <Suspense fallback={null}>
           <Cake3D
             shape={shape}
@@ -279,6 +306,9 @@ export default function Cake3DPreview({ designData, size = 200 }) {
             sizeInches={sizeInches}
             tierFrostings={tierFrostings}
             placedDecorations={placedDecorations}
+            onSelectDecoration={onSelectDecoration}
+            interactive={interactive}
+            selectedDecoration={selectedDecoration}
           />
         </Suspense>
       </Canvas>
