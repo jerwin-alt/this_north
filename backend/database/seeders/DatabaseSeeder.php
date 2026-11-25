@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder {
         $this->call(SvgDecorationsSeeder::class);
         $this->call(DiscountSeeder::class); 
         $this->call(HistoricalDataSeeder::class); 
+        $this->call(CustomerAndOrderSeeder::class); 
     }
 
 

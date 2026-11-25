@@ -46,6 +46,30 @@ const categoryIcons = {
   'Dessert': Cake,
 };
 
+
+// Bulletproof URL builder that handles old domains and missing '/storage/'
+const getCleanImageUrl = (path) => {
+  if (!path) return null;
+  
+  let cleanPath = path;
+  
+  // If the DB saved an old, dead absolute URL, strip the domain
+  if (path.startsWith('http')) {
+    try { cleanPath = new URL(path).pathname; } catch(e) {}
+  }
+  
+  // Ensure the path includes '/storage/'
+  if (!cleanPath.startsWith('/storage/')) {
+    cleanPath = '/storage/' + (cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath);
+  }
+  
+  // Get the backend URL and strip '/api'
+  const backendUrl = (import.meta.env.VITE_API_URL || 'https://thisnorth-production.up.railway.app/api').replace(/\/api\/?$/, '');
+  return `${backendUrl}${cleanPath}`;
+};
+
+
+
 export default function Products() {
   // ---------- State ----------
   const [categories, setCategories] = useState([]);
@@ -402,7 +426,7 @@ export default function Products() {
       menu_type: product.menu_type,
       stock_quantity: product.stock_quantity ?? '0',
       is_ready_made: product.is_ready_made,
-      expiration_date: product.expiration_date || '',
+      expiration_date: product.expiration_date ? product.expiration_date.split('T')[0] : '',
       min_stock_level: product.min_stock_level ?? '',
       sku: product.sku || '',
       image: null,
@@ -905,24 +929,16 @@ export default function Products() {
                 >
                   {/* Image */}
                   <div style={{ aspectRatio: '4/3', background: CREAM, position: 'relative', overflow: 'hidden' }}>
-                    {/* 1. Always render the fallback placeholder in the background */}
                     <div className="w-full h-full flex items-center justify-center absolute inset-0" style={{ background: `linear-gradient(135deg, ${CREAM}, ${SOFT_WHITE})` }}>
                       <Package style={{ color: MUTED_GRAY, opacity: 0.3 }} size={48} />
                     </div>
 
-                    {/* 2. Render the image on top if it exists. If the URL breaks (404), onError hides it to reveal the fallback. */}
                     {product.image_url && (
                       <img
-                        src={
-                          product.image_url.startsWith('http')
-                            ? product.image_url
-                            : `${(import.meta.env.VITE_API_URL || 'https://thisnorth-production.up.railway.app/api').replace(/\/api\/?$/, '')}${product.image_url.startsWith('/') ? '' : '/'}${product.image_url}`
-                        }
+                        src={getCleanImageUrl(product.image_url)}
                         alt={product.name}
                         className="product-card-img w-full h-full object-cover absolute inset-0"
-                        onError={(e) => {
-                          e.target.style.display = 'none'; // Hides broken image to show the placeholder
-                        }}
+                        onError={(e) => { e.target.style.display = 'none'; }}
                       />
                     )}
 
