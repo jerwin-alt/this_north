@@ -53,13 +53,16 @@ import { getToken } from "../services/auth-storage"; // ✅ Fixed path: step up 
 //   "http://localhost:8000/api";   // ← change fallback
 
 
+// ✅ Corrected fallback to the NEW backend URL
 const baseURL =
   import.meta.env.VITE_API_URL ||
-  "https://thisnorth-production-backend.up.railway.app/api";
+  "https://thisnorth-production.up.railway.app/api";
 
 const axios = axiosClient.create({
   baseURL,
-  headers: { Accept: "application/json" },
+  headers: { 
+    Accept: "application/json", 
+  },
 });
 
 
