@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from '../api/axios'; // ✅ CORRECT: Uses your configured axios with the Railway URL
+import axios from '/api/axios';// ✅ CORRECT: Uses your configured axios with the Railway URL
 import { Trash2, CheckCircle, XCircle, AlertCircle, Inbox } from 'lucide-react';
 
 // ❌ REMOVED: const API_BASE_URL = 'http://localhost:8000'; 
