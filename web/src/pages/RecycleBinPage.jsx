@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import axios from '../api/axios'; // ✅ CORRECT: Uses your configured axios with the Railway URL
 import { Trash2, CheckCircle, XCircle, AlertCircle, Inbox } from 'lucide-react';
 
-const API_BASE_URL = 'http://localhost:8000'; 
+// ❌ REMOVED: const API_BASE_URL = 'http://localhost:8000'; 
 
 const TABS = [
   { key: 'all', label: 'All Deleted Items' },
@@ -44,14 +44,8 @@ export default function RecycleBinPage() {
   const fetchRecords = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
-      
-      const res = await axios.get(`${API_BASE_URL}/api/admin/recycle-bin?tab=${activeTab}`, {
-        headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
-          'Accept': 'application/json'
-        }
-      });
+      // ✅ CORRECT: No hardcoded URL. Global axios handles the token and baseURL.
+      const res = await axios.get(`/admin/recycle-bin?tab=${activeTab}`);
       
       if (activeTab === 'all') {
          const allData = res.data.data;
@@ -97,18 +91,16 @@ export default function RecycleBinPage() {
 
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
-      const config = { headers: { Authorization: token ? `Bearer ${token}` : '' } };
-
       if (confirmAction === 'single' && targetId) {
         const categoryToSend = activeTab === 'all' 
             ? records.find(r => r.id === targetId)?.category_key 
             : activeTab;
 
-        await axios.post(`${API_BASE_URL}/api/admin/recycle-bin/restore`, {
+        // ✅ CORRECT: Uses relative path
+        await axios.post('/admin/recycle-bin/restore', {
           category: categoryToSend,
           id: targetId,
-        }, config);
+        });
         showToast('success', 'Record restored successfully');
       } else if (confirmAction === 'bulk') {
         
@@ -137,7 +129,8 @@ export default function RecycleBinPage() {
             payload = { category: activeTab, ids: selectedIds };
         }
 
-        const res = await axios.post(`${API_BASE_URL}/api/admin/recycle-bin/bulk-restore`, payload, config);
+        // ✅ CORRECT: Uses relative path
+        const res = await axios.post('/admin/recycle-bin/bulk-restore', payload);
         
         const { restored, failed } = res.data;
         
@@ -368,4 +361,4 @@ export default function RecycleBinPage() {
       `}</style>
     </div>
   );
-}   
+}
